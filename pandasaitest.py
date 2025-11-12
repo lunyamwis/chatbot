@@ -18,6 +18,11 @@ from openai import OpenAI
 #     "llm": pandas_llm
 # })
 
+import sqlite3
+from contextlib import closing
+
+DB_PATH = "conversation_memory.db"
+
 
 
 llm = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -59,6 +64,76 @@ stages_list = [
 user_id = "martin"
 conversation_memory[user_id] = {field: None for field in FILTER_FIELDS}
 conversation_memory[user_id]["stage"] = "awaiting_model"
+
+def init_memory_db():
+    """Initialize the SQLite table with real columns."""
+    with closing(sqlite3.connect(DB_PATH)) as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS conversation_memory (
+                user_id TEXT PRIMARY KEY,
+                make TEXT,
+                model TEXT,
+                drive TEXT,
+                body_type TEXT,
+                colour TEXT,
+                stage TEXT
+            )
+        """)
+        conn.commit()
+
+
+def load_memory_from_db(user_id: str) -> dict:
+    """Load the memory for a given user_id; return defaults if not found."""
+    with closing(sqlite3.connect(DB_PATH)) as conn:
+        cur = conn.execute("SELECT make, model, drive, body_type, colour, stage FROM conversation_memory WHERE user_id = ?", (user_id,))
+        row = cur.fetchone()
+
+    if row:
+        make, model, drive, body_type, colour, stage = row
+    else:
+        make = model = drive = body_type = colour = None
+        stage = "awaiting_model"
+
+    return {
+        "make": make,
+        "model": model,
+        "drive": drive,
+        "body_type": body_type,
+        "colour": colour,
+        "stage": stage
+    }
+
+def save_memory_to_db(user_id: str, memory: dict):
+    # import pdb;pdb.set_trace()
+    """Insert or update the user's memory record."""
+    with closing(sqlite3.connect(DB_PATH)) as conn:
+        conn.execute("""
+            INSERT INTO conversation_memory (user_id, make, model, drive, body_type, colour, stage)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                make=excluded.make,
+                model=excluded.model,
+                drive=excluded.drive,
+                body_type=excluded.body_type,
+                colour=excluded.colour,
+                stage=excluded.stage
+        """, (
+            user_id,
+            memory.get("make"),
+            memory.get("model"),
+            memory.get("drive"),
+            memory.get("body_type"),
+            memory.get("colour"),
+            memory.get("stage", "awaiting_model"),
+        ))
+        conn.commit()
+
+def clear_memory_in_db(user_id: str):
+    """Remove a user’s memory record."""
+    with closing(sqlite3.connect(DB_PATH)) as conn:
+        conn.execute("DELETE FROM conversation_memory WHERE user_id = ?", (user_id,))
+        conn.commit()
+
 # -----------------------
 # Helpers
 # -----------------------
@@ -85,7 +160,49 @@ def normalize_colname(df, col):
 # -----------------------
 # Tool: Filter cars
 # -----------------------
-def filter_cars_tool(user_id=None, make=None, model=None, drive=None, body_type=None, colour=None):
+def filter_cars_tool(user_id=user_id, make=None, model=None, drive=None, body_type=None, colour=None):
+    """
+    Filter the car dataset using user parameters + saved memory.
+    Falls back between 'make' and 'model' if needed.
+    Persists updates in structured DB columns.
+    """
+    # import pdb;pdb.set_trace()
+    filtered = df.copy()
+    memory = load_memory_from_db(user_id)
+
+    # Merge with new info
+    if make: memory["make"] = make 
+    if model: memory["model"] = model if model else make
+    if drive: memory["drive"] = drive
+    if body_type: memory["body_type"] = body_type
+    if colour: memory["colour"] = colour
+
+    # Apply filtering logic
+    for key, val in memory.items():
+        if not val or key == "stage":
+            continue
+
+        if key in ["make", "model"]:
+            make_col = normalize_colname(filtered, "make")
+            model_col = normalize_colname(filtered, "model")
+            mask = pd.Series(False, index=filtered.index)
+            if make_col in filtered.columns:
+                mask |= filtered[make_col].astype(str).str.lower().str.contains(str(val).lower(), na=False)
+            if model_col in filtered.columns:
+                mask |= filtered[model_col].astype(str).str.lower().str.contains(str(val).lower(), na=False)
+            filtered = filtered[mask]
+        else:
+            col = normalize_colname(filtered, key)
+            if col in filtered.columns:
+                filtered = filtered[filtered[col].astype(str).str.lower().str.contains(str(val).lower(), na=False)]
+
+    # Persist the latest memory state
+    save_memory_to_db(user_id, memory)
+    logging.info(f"[Tool] Filtered {len(filtered)} cars using structured memory: {memory}")
+    return filtered
+
+
+def filter_cars_tool_v1(user_id=None, make=None, model=None, drive=None, body_type=None, colour=None):
     """
     Filter the car dataset using memory and/or parameters.
     Performs fallback matching (e.g., if 'make' not found, checks in 'model').
@@ -95,7 +212,7 @@ def filter_cars_tool(user_id=None, make=None, model=None, drive=None, body_type=
     # Merge memory and explicit args
     memory = conversation_memory.get(user_id, {})
     criteria = memory.copy()
-    if make: criteria["make"] = make
+    if make: criteria["make"] = make 
     if model: criteria["model"] = model
     if drive: criteria["drive"] = drive
     if body_type: criteria["body_type"] = body_type
@@ -148,6 +265,11 @@ def pick_best_by_budget(df, budget):
     logging.info(f"Best match based on budget {budget}: {best_row.to_dict(orient='records')[0]}")
     return best_row
 
+def update_stage(user_id, new_stage):
+    memory = load_memory_from_db(user_id)
+    memory["stage"] = new_stage
+    save_memory_to_db(user_id, memory)
+    logging.info(f"[Memory] Stage updated for {user_id}: {new_stage}")
 
 
 # -----------------------
@@ -233,11 +355,14 @@ def call_openai_to_json(prompt, memory=None, filter_func=filter_cars_tool):
                         "awaiting_budget": ["model", "drive", "body_type", "colour", "price"],
                     }
 
+                    # load_memory_from_db(user_id) again to refresh changes after filtering
+                    memory = load_memory_from_db(user_id)
                     current_stage = memory.get("stage", "awaiting_model")
                     # import pdb;pdb.set_trace()
                     # memory['stage'] = current_stage
                     stages_index = 0
-                    if conversation_memory[user_id].get("model") or conversation_memory[user_id].get("make"):
+                    # import pdb;pdb.set_trace()
+                    if memory.get("model") or memory.get("make"):
                         stages_index = stages_mapper[current_stage]+1
                     else:
                         stages_index = stages_mapper[current_stage]
@@ -276,7 +401,7 @@ def call_openai_to_json(prompt, memory=None, filter_func=filter_cars_tool):
 
                     Context:
                     - The already extracted information are summarized below:
-                    {conversation_memory[user_id]}
+                    {load_memory_from_db(user_id)}
                     
                 
                     Rules:
@@ -311,7 +436,9 @@ def call_openai_to_json(prompt, memory=None, filter_func=filter_cars_tool):
                     parsed["next_stage"] = json.loads(next_question).get("next_stage", "")
                     conversation_memory[user_id]["stage"] = parsed["next_stage"]
                     conversation_memory[user_id]["next_stage"] = parsed["next_stage"]
-
+                    # print(f"Saving memory: {memory}")
+                    update_stage(user_id, parsed["next_stage"])
+                    print("Memory after stage update:", load_memory_from_db(user_id))
                     print(f"Next question and stage: {parsed['next_question']} | {parsed['next_stage']}")
 
                     # memory["stage"] = parsed["next_stage"]
@@ -426,7 +553,8 @@ def generate_answer_v1(user_id, message):
     if user_id not in conversation_memory:
         conversation_memory[user_id]["stage"] = "awaiting_model"
 
-    memory = conversation_memory[user_id]
+    # memory = conversation_memory[user_id]
+    memory = load_memory_from_db(user_id)
     logging.info(f"Current memory before processing: {memory}")
 
     # -----------------------
