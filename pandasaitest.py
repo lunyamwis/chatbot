@@ -271,6 +271,40 @@ def update_stage(user_id, new_stage):
     save_memory_to_db(user_id, memory)
     logging.info(f"[Memory] Stage updated for {user_id}: {new_stage}")
 
+def update_make_or_model(user_id, new_make=None, new_model=None):
+    memory = load_memory_from_db(user_id)
+    if new_make:
+        memory["make"] = new_make
+    if new_model:
+        memory["model"] = new_model if new_model else new_make
+    save_memory_to_db(user_id, memory)
+    logging.info(f"[Memory] Make/Model updated for {user_id}: {new_make}, {new_model}")
+
+def update_drive(user_id, new_drive):
+    memory = load_memory_from_db(user_id)
+    memory["drive"] = new_drive
+    save_memory_to_db(user_id, memory)
+    logging.info(f"[Memory] Drive updated for {user_id}: {new_drive}")
+
+
+def update_body_type(user_id, new_body_type):
+    memory = load_memory_from_db(user_id)
+    memory["body_type"] = new_body_type
+    save_memory_to_db(user_id, memory)
+    logging.info(f"[Memory] Body type updated for {user_id}: {new_body_type}")
+
+def update_colour(user_id, new_colour):
+    memory = load_memory_from_db(user_id)
+    memory["colour"] = new_colour
+    save_memory_to_db(user_id, memory)
+    logging.info(f"[Memory] Colour updated for {user_id}: {new_colour}")
+
+def update_budget(user_id, new_budget):
+    memory = load_memory_from_db(user_id)
+    memory["budget"] = new_budget
+    save_memory_to_db(user_id, memory)
+    logging.info(f"[Memory] Budget updated for {user_id}: {new_budget}")
+
 
 # -----------------------
 # Call OpenAI API for JSON
@@ -283,7 +317,7 @@ def call_openai_to_json(prompt, memory=None, filter_func=filter_cars_tool):
     logging.info("Calling OpenAI API...")
 
     messages = [
-        {"role": "system", "content": "You are a car sales assistant. Only return JSON, no text."},
+        {"role": "system", "content": "You are a car sales assistant. Only return JSON, no text. You MUST always call the function `filter_cars_` whenever the user message involves vehicle details (make, model, drive, color, budget, etc.)."},
         {"role": "user", "content": prompt}
     ]
 
@@ -314,138 +348,62 @@ def call_openai_to_json(prompt, memory=None, filter_func=filter_cars_tool):
                 }
             ],
             tool_choice="auto",
+            # tool_choice={"type": "function", "function": {"name": "filter_cars_"}}, 
             response_format={"type": "json_object"}
         )
 
         # import pdb;pdb.set_trace()
         data = response.choices[0]
+        print(data)
         content = data.message.content
         logging.info(f"Raw API response: {content}")
         # import pdb;pdb.set_trace()
+        if content:
+            parsed_content = json.loads(content)
+            if "next_stage" in parsed_content:
+                update_stage(user_id, new_stage=parsed_content["next_stage"])
+            if "make" in parsed_content["memory_update"] or "model" in parsed_content["memory_update"]:
+                update_make_or_model(user_id, new_make=parsed_content['memory_update'].get("make", ""), new_model=parsed_content['memory_update'].get("model", ""))
+            if "drive" in parsed_content["memory_update"]:
+                update_drive(user_id, new_drive=parsed_content['memory_update'].get("drive", ""))
+            if "body_type" in parsed_content["memory_update"]:
+                update_body_type(user_id, new_body_type=parsed_content['memory_update'].get("body_type", ""))
+            if "colour" in parsed_content["memory_update"]:
+                update_colour(user_id, new_colour=parsed_content['memory_update'].get("colour", ""))
+            if "budget" in parsed_content["memory_update"]:
+                update_budget(user_id, new_budget=parsed_content['memory_update'].get("budget", ""))
         parsed = json.loads(content) if content else {}
         if content:
-            parsed['reply'] = parsed.get('reply','') + parsed.get('next_question','')
+            if "memory_update" in parsed and filter_func:
+                # reload memory
+                memory = load_memory_from_db(user_id)
+                filtered_data = {k: v for k, v in memory.items() if k != 'stage'}
+                matches = filter_func(**filtered_data)
+                reply = return_matches_as_text(parsed, matches, is_off_tool=True)
+                parsed['reply'] =  reply 
+            else:
+                parsed['reply'] = parsed.get('reply','') + parsed.get('next_question','')
 
         # --- integrate filtering at every stage ---
+
         if filter_func and memory:
             # Update memory with model’s extracted info
             # memory.update(parsed.get("memory_update", {}))
 
             # Handle tool calls
+            memory_update = parsed.get("memory_update", {})
             if hasattr(data.message, "tool_calls") and data.message.tool_calls:
+                # reload memory
+                memory = load_memory_from_db(user_id)
                 tool_call = data.message.tool_calls[0]
                 if tool_call.function.name == "filter_cars_":
                     args = json.loads(tool_call.function.arguments)
                     # import pdb;pdb.set_trace()
+
                     matches = filter_func(**args)
-
-                    # Convert to DataFrame for easy grouping/filtering
-                    logging.info(f"Tool returned {len(matches)} matches.")
-                    if len(matches) == 0:
-                        parsed["reply"] = "Sorry, I couldn't find any cars matching your criteria. Could you try other options?"
-                        return parsed
-                    
-
-                    # --- Stage-specific grouping ---
-                    stage_to_fields = {
-                        "awaiting_model": ["model"],
-                        "awaiting_drive": ["model", "drive"],
-                        "awaiting_body_type": ["model", "drive", "body_type"],
-                        "awaiting_colour": ["model", "drive", "body_type", "colour"],
-                        "awaiting_budget": ["model", "drive", "body_type", "colour", "price"],
-                    }
-
-                    # load_memory_from_db(user_id) again to refresh changes after filtering
-                    memory = load_memory_from_db(user_id)
-                    current_stage = memory.get("stage", "awaiting_model")
                     # import pdb;pdb.set_trace()
-                    # memory['stage'] = current_stage
-                    stages_index = 0
-                    # import pdb;pdb.set_trace()
-                    if memory.get("model") or memory.get("make"):
-                        stages_index = stages_mapper[current_stage]+1
-                    else:
-                        stages_index = stages_mapper[current_stage]
-                    current_fields = stage_to_fields.get(stages_list[stages_index], ["model"])
-                    group_field = current_fields[-1] 
-                    group_col = normalize_colname(matches, group_field) if not matches.empty else None
-
-                    reply_lines = []
-                    if group_col and group_col in matches.columns:
-                        grouped = matches.groupby(group_col)
-                        for group_value, group_df in grouped:
-                            if pd.isna(group_value):
-                                continue
-                            reply_lines.append(f"\n{group_col.title()}: {group_value}")
-                    else:
-                        for _, row in matches.head(5).iterrows():
-                            visible = ", ".join(
-                                f"{c}: {row[normalize_colname(matches, c)]}"
-                                for c in current_fields
-                                if normalize_colname(matches, c) in matches.columns and pd.notna(row[normalize_colname(matches, c)])
-                            )
-                            reply_lines.append(visible)
-
-                    # --- Final natural reply with matches ---
-                    parsed["results"] = matches.to_dict(orient="records")
-                    # paidf = pai.DataFrame(matches)
-                    next_question_prompt = f"""
-                    You are assisting in an interactive car sales conversation.
-                    The goal is to guide the user step-by-step through the following stages:
-                        awaiting_model → awaiting_drive → awaiting_body_type → awaiting_colour → awaiting_budget
-
-                    You must determine:
-                    1. The most appropriate **next stage** in this sequence, given the user's current progress and the filtered car results.
-                    2. The most relevant **next question** to ask that will help move to that stage.
-                    
-
-                    Context:
-                    - The already extracted information are summarized below:
-                    {load_memory_from_db(user_id)}
-                    
-                
-                    Rules:
-                    - Always follow the order of progression strictly.
-                    - Do not skip stages, unless all information for earlier stages is already known.
-                    - The output must be a pure JSON object in this exact format:
-                    - Do not give any options or examples at all!!!!!!!!!!
-                    {{
-                        "next_question": "string",
-                        "next_stage": "string"
-                    }}
-                    """
-
-                    next_question_response = llm.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=[
-                            {
-                                "role": "system",
-                                "content": (
-                                    "You are a reasoning engine for a car sales assistant. "
-                                    "Your job is to determine the next stage and next question based on car filtering results. "
-                                    "Respond with JSON only, strictly formatted as {\"next_question\": \"...\", \"next_stage\": \"...\"}."
-                                )
-                            },
-                            {"role": "user", "content": next_question_prompt}
-                        ],
-                        response_format={"type": "json_object"}
-                    )
-
-                    next_question = next_question_response.choices[0].message.content
-                    parsed["next_question"] = json.loads(next_question).get("next_question", "")
-                    parsed["next_stage"] = json.loads(next_question).get("next_stage", "")
-                    conversation_memory[user_id]["stage"] = parsed["next_stage"]
-                    conversation_memory[user_id]["next_stage"] = parsed["next_stage"]
-                    # print(f"Saving memory: {memory}")
-                    update_stage(user_id, parsed["next_stage"])
-                    print("Memory after stage update:", load_memory_from_db(user_id))
-                    print(f"Next question and stage: {parsed['next_question']} | {parsed['next_stage']}")
-
-                    # memory["stage"] = parsed["next_stage"]
-                    parsed["reply"] = parsed.get("next_question", "") + "\n" + parsed.get("reply", "Here are options from our stock:") + "\n" + "\n".join(reply_lines)
-
-
-        
+                    reply = return_matches_as_text(parsed, matches,is_off_tool=False)
+                    parsed["reply"] = reply
         return parsed
 
     except Exception as e:
@@ -545,6 +503,119 @@ def FilterCarsTool(df):
 
 filter_cars_ = FilterCarsTool(df)
 
+def return_matches_as_text(parsed, matches, is_off_tool=False) -> str:
+    # import pdb;pdb.set_trace()
+    if matches.empty:
+        return "No matching cars found."
+
+    # Convert to DataFrame for easy grouping/filtering
+    logging.info(f"Tool returned {len(matches)} matches.")
+    if len(matches) == 0:
+        parsed["reply"] = "Sorry, I couldn't find any cars matching your criteria. Could you try other options?"
+        return parsed
+    
+
+    # --- Stage-specific grouping ---
+    stage_to_fields = {
+        "awaiting_model": ["model"],
+        "awaiting_drive": ["model", "drive"],
+        "awaiting_body_type": ["model", "drive", "body_type"],
+        "awaiting_colour": ["model", "drive", "body_type", "colour"],
+        "awaiting_budget": ["model", "drive", "body_type", "colour", "price"],
+    }
+
+    # load_memory_from_db(user_id) again to refresh changes after filtering
+    memory = load_memory_from_db(user_id)
+    current_stage = memory.get("stage", "awaiting_model")
+    # import pdb;pdb.set_trace()
+    # memory['stage'] = current_stage
+    stages_index = 0
+    if not is_off_tool:
+        if memory.get("model") or memory.get("make"):
+            stages_index = stages_mapper[current_stage]+1
+        else:
+            stages_index = stages_mapper[current_stage]
+    else:
+        stages_index = stages_mapper[current_stage]
+    current_fields = stage_to_fields.get(stages_list[stages_index], ["model"])
+    group_field = current_fields[-1] 
+    group_col = normalize_colname(matches, group_field) if not matches.empty else None
+
+    reply_lines = []
+    if group_col and group_col in matches.columns:
+        grouped = matches.groupby(group_col)
+        for group_value, group_df in grouped:
+            if pd.isna(group_value):
+                continue
+            reply_lines.append(f"\n{group_col.title()}: {group_value}")
+    else:
+        for _, row in matches.head(5).iterrows():
+            visible = ", ".join(
+                f"{c}: {row[normalize_colname(matches, c)]}"
+                for c in current_fields
+                if normalize_colname(matches, c) in matches.columns and pd.notna(row[normalize_colname(matches, c)])
+            )
+            reply_lines.append(visible)
+
+    # --- Final natural reply with matches ---
+    parsed["results"] = matches.to_dict(orient="records")
+    # paidf = pai.DataFrame(matches)
+    next_question_prompt = f"""
+    You are assisting in an interactive car sales conversation.
+    The goal is to guide the user step-by-step through the following stages:
+        awaiting_model → awaiting_drive → awaiting_body_type → awaiting_colour → awaiting_budget
+
+    You must determine:
+    1. The most appropriate **next stage** in this sequence, given the user's current progress and the filtered car results.
+    2. The most relevant **next question** to ask that will help move to that stage.
+    
+
+    Context:
+    - The already extracted information are summarized below:
+    {load_memory_from_db(user_id)}
+    
+
+    Rules:
+    - Always follow the order of progression strictly.
+    - Do not skip stages, unless all information for earlier stages is already known.
+    - The output must be a pure JSON object in this exact format:
+    - Do not give any options or examples at all!!!!!!!!!!
+    {{
+        "next_question": "string",
+        "next_stage": "string"
+    }}
+    """
+
+    next_question_response = llm.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are a reasoning engine for a car sales assistant. "
+                    "Your job is to determine the next stage and next question based on car filtering results. "
+                    "Respond with JSON only, strictly formatted as {\"next_question\": \"...\", \"next_stage\": \"...\"}."
+                )
+            },
+            {"role": "user", "content": next_question_prompt}
+        ],
+        response_format={"type": "json_object"}
+    )
+
+    next_question = next_question_response.choices[0].message.content
+    parsed["next_question"] = json.loads(next_question).get("next_question", "")
+    parsed["next_stage"] = json.loads(next_question).get("next_stage", "")
+    conversation_memory[user_id]["stage"] = parsed["next_stage"]
+    conversation_memory[user_id]["next_stage"] = parsed["next_stage"]
+    # print(f"Saving memory: {memory}")
+    if not is_off_tool:
+        update_stage(user_id, parsed["next_stage"])
+    print("Memory after stage update:", load_memory_from_db(user_id))
+    print(f"Next question and stage: {parsed['next_question']} | {parsed['next_stage']}")
+
+    # memory["stage"] = parsed["next_stage"]
+    parsed["reply"] = parsed.get("next_question", "") + "\n" + parsed.get("reply", "Here are options from our stock:") + "\n" + "\n".join(reply_lines)
+    return parsed["reply"]
 
 
 def generate_answer_v1(user_id, message):
