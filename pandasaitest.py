@@ -226,8 +226,8 @@ def call_openai_to_json(prompt, memory=None, filter_func=filter_cars_tool):
                     2. The most relevant **next question** to ask that will help move to that stage.
 
                     Context:
-                    - The filtered car results are summarized below:
-                    {reply_lines}
+                    - The already extracted information are summarized below:
+                    {conversation_memory[user_id]}
 
                     Rules:
                     - Always follow the order of progression strictly.
