@@ -39,7 +39,23 @@ df = pd.read_csv("/home/martin/Downloads/motorvehicles.csv")
 conversation_memory = {}
 conversation_history = []
 
-FILTER_FIELDS = ["make", "model", "drive", "body_type", "colour", "budget", "stage"]
+FILTER_FIELDS = ["make", "model", "drive", "body_type", "colour", "budget", "stage","next_stage"]
+stages_mapper = {
+    "awaiting_model": 0,
+    "awaiting_drive": 1,
+    "awaiting_body_type": 2,
+    "awaiting_colour": 3,
+    "awaiting_budget": 4,
+    "completed": 5
+}
+stages_list = [
+    "awaiting_model",
+    "awaiting_drive",
+    "awaiting_body_type",
+    "awaiting_colour",
+    "awaiting_budget",
+    "completed"
+]
 user_id = "martin"
 conversation_memory[user_id] = {field: None for field in FILTER_FIELDS}
 conversation_memory[user_id]["stage"] = "awaiting_model"
@@ -69,9 +85,10 @@ def normalize_colname(df, col):
 # -----------------------
 # Tool: Filter cars
 # -----------------------
-def filter_cars_tool(make=None, model=None, drive=None, body_type=None, colour=None):
+def filter_cars_tool(user_id=None, make=None, model=None, drive=None, body_type=None, colour=None):
     """
     Filter the car dataset using memory and/or parameters.
+    Performs fallback matching (e.g., if 'make' not found, checks in 'model').
     """
     filtered = df.copy()
 
@@ -85,15 +102,35 @@ def filter_cars_tool(make=None, model=None, drive=None, body_type=None, colour=N
     if colour: criteria["colour"] = colour
 
     for key, val in criteria.items():
-        if val:
-            col = normalize_colname(filtered, key)
-            if col:
-                filtered = filtered[filtered[col].astype(str).str.lower() == str(val).lower()]
+        # conversation_memory[user_id][key] = val  # Update memory with latest criteria
+        if not val:
+            continue
+
+        col = normalize_colname(filtered, key)
+
+        # --- Fallback: check both make and model if relevant ---
+        if key in ["make", "model"]:
+            make_col = normalize_colname(filtered, "make")
+            model_col = normalize_colname(filtered, "model")
+
+            mask = pd.Series(False, index=filtered.index)
+            if make_col in filtered.columns:
+                mask |= filtered[make_col].astype(str).str.lower().str.contains(str(val).lower(), na=False)
+            if model_col in filtered.columns:
+                mask |= filtered[model_col].astype(str).str.lower().str.contains(str(val).lower(), na=False)
+
+            filtered = filtered[mask]
+        else:
+            # Normal filtering for other attributes
+            if col in filtered.columns:
+                filtered = filtered[
+                    filtered[col].astype(str).str.lower().str.contains(str(val).lower(), na=False)
+                ]
+
     logging.info(f"[Tool] Filtered {len(filtered)} cars using memory: {criteria}")
-    conversation_memory[user_id].update(criteria)
+    conversation_memory[user_id] = criteria
     logging.info(f"[Tool] Updated memory: {conversation_memory[user_id]}")
     return filtered
-
 
 
 def pick_best_by_budget(df, budget):
@@ -110,6 +147,8 @@ def pick_best_by_budget(df, budget):
     best_row = df.sort_values("diff").head(1)  # DataFrame
     logging.info(f"Best match based on budget {budget}: {best_row.to_dict(orient='records')[0]}")
     return best_row
+
+
 
 # -----------------------
 # Call OpenAI API for JSON
@@ -180,21 +219,30 @@ def call_openai_to_json(prompt, memory=None, filter_func=filter_cars_tool):
 
                     # Convert to DataFrame for easy grouping/filtering
                     logging.info(f"Tool returned {len(matches)} matches.")
+                    if len(matches) == 0:
+                        parsed["reply"] = "Sorry, I couldn't find any cars matching your criteria. Could you try other options?"
+                        return parsed
+                    
 
                     # --- Stage-specific grouping ---
                     stage_to_fields = {
-                        "awaiting_model": ["model","drive"],
-                        "awaiting_drive": ["model", "drive", "body_type"],
-                        "awaiting_body_type": ["model", "drive", "body_type", "colour"],
-                        "awaiting_color": ["model", "drive", "body_type", "colour", "price"],
+                        "awaiting_model": ["model"],
+                        "awaiting_drive": ["model", "drive"],
+                        "awaiting_body_type": ["model", "drive", "body_type"],
+                        "awaiting_colour": ["model", "drive", "body_type", "colour"],
                         "awaiting_budget": ["model", "drive", "body_type", "colour", "price"],
                     }
 
                     current_stage = memory.get("stage", "awaiting_model")
                     # import pdb;pdb.set_trace()
                     # memory['stage'] = current_stage
-                    current_fields = stage_to_fields.get(current_stage, ["model"])
-                    group_field = current_fields[-1]
+                    stages_index = 0
+                    if conversation_memory[user_id].get("model") or conversation_memory[user_id].get("make"):
+                        stages_index = stages_mapper[current_stage]+1
+                    else:
+                        stages_index = stages_mapper[current_stage]
+                    current_fields = stage_to_fields.get(stages_list[stages_index], ["model"])
+                    group_field = current_fields[-1] 
                     group_col = normalize_colname(matches, group_field) if not matches.empty else None
 
                     reply_lines = []
@@ -219,20 +267,23 @@ def call_openai_to_json(prompt, memory=None, filter_func=filter_cars_tool):
                     next_question_prompt = f"""
                     You are assisting in an interactive car sales conversation.
                     The goal is to guide the user step-by-step through the following stages:
-                        awaiting_model → awaiting_drive → awaiting_body_type → awaiting_color → awaiting_budget
+                        awaiting_model → awaiting_drive → awaiting_body_type → awaiting_colour → awaiting_budget
 
                     You must determine:
                     1. The most appropriate **next stage** in this sequence, given the user's current progress and the filtered car results.
                     2. The most relevant **next question** to ask that will help move to that stage.
+                    
 
                     Context:
                     - The already extracted information are summarized below:
                     {conversation_memory[user_id]}
-
+                    
+                
                     Rules:
                     - Always follow the order of progression strictly.
                     - Do not skip stages, unless all information for earlier stages is already known.
                     - The output must be a pure JSON object in this exact format:
+                    - Do not give any options or examples at all!!!!!!!!!!
                     {{
                         "next_question": "string",
                         "next_stage": "string"
@@ -259,10 +310,12 @@ def call_openai_to_json(prompt, memory=None, filter_func=filter_cars_tool):
                     parsed["next_question"] = json.loads(next_question).get("next_question", "")
                     parsed["next_stage"] = json.loads(next_question).get("next_stage", "")
                     conversation_memory[user_id]["stage"] = parsed["next_stage"]
+                    conversation_memory[user_id]["next_stage"] = parsed["next_stage"]
+
                     print(f"Next question and stage: {parsed['next_question']} | {parsed['next_stage']}")
 
                     # memory["stage"] = parsed["next_stage"]
-                    parsed["reply"] = parsed.get("next_question", "") + "\n" + parsed.get("reply", "Here are some options:") + "\n" + "\n".join(reply_lines)
+                    parsed["reply"] = parsed.get("next_question", "") + "\n" + parsed.get("reply", "Here are options from our stock:") + "\n" + "\n".join(reply_lines)
 
 
         
@@ -421,12 +474,13 @@ def generate_answer_v1(user_id, message):
 
     ### TASK
     1. Detect if the user is providing information for any of these fields: make, model, drive, body_type, color, budget
-    2. Suggest the next stage of conversation: one of ["awaiting_model","awaiting_drive","awaiting_body_type","awaiting_color","awaiting_budget","completed"]
+    2. Suggest the next stage of conversation: one of ["awaiting_model","awaiting_drive","awaiting_body_type","awaiting_colour","awaiting_budget","completed"]
     3. Update memory with any new info
     4. Generate a short, natural reply to continue narrowing
     5. Do not give examples or explanations.
     6. Ask the next user question based on the conversation memory given in order to reach "completed" stage.
     7. Ensure next question and generated reply do not clash or repeat.
+    8. Do not give options or examples!!!!!!!
 
     **Return ONLY valid JSON with this structure:**
     {{
