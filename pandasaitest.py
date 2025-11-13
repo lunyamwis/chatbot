@@ -6,6 +6,7 @@ import uuid
 import pandas as pd
 import requests
 import logging
+import math
 from openai import OpenAI
 # import pandasai as pai
 # from pandasai_litellm.litellm import LiteLLM
@@ -76,6 +77,7 @@ def init_memory_db():
                 drive TEXT,
                 body_type TEXT,
                 colour TEXT,
+                budget INTEGER,
                 stage TEXT
             )
         """)
@@ -85,13 +87,14 @@ def init_memory_db():
 def load_memory_from_db(user_id: str) -> dict:
     """Load the memory for a given user_id; return defaults if not found."""
     with closing(sqlite3.connect(DB_PATH)) as conn:
-        cur = conn.execute("SELECT make, model, drive, body_type, colour, stage FROM conversation_memory WHERE user_id = ?", (user_id,))
+        cur = conn.execute("SELECT make, model, drive, body_type, colour, budget,stage FROM conversation_memory WHERE user_id = ?", (user_id,))
         row = cur.fetchone()
 
     if row:
-        make, model, drive, body_type, colour, stage = row
+        make, model, drive, body_type, colour, budget, stage = row
     else:
         make = model = drive = body_type = colour = None
+        budget = 0
         stage = "awaiting_model"
 
     return {
@@ -100,6 +103,7 @@ def load_memory_from_db(user_id: str) -> dict:
         "drive": drive,
         "body_type": body_type,
         "colour": colour,
+        "budget": budget,
         "stage": stage
     }
 
@@ -108,14 +112,15 @@ def save_memory_to_db(user_id: str, memory: dict):
     """Insert or update the user's memory record."""
     with closing(sqlite3.connect(DB_PATH)) as conn:
         conn.execute("""
-            INSERT INTO conversation_memory (user_id, make, model, drive, body_type, colour, stage)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO conversation_memory (user_id, make, model, drive, body_type, colour, budget, stage)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(user_id) DO UPDATE SET
                 make=excluded.make,
                 model=excluded.model,
                 drive=excluded.drive,
                 body_type=excluded.body_type,
                 colour=excluded.colour,
+                budget=excluded.budget,
                 stage=excluded.stage
         """, (
             user_id,
@@ -124,6 +129,7 @@ def save_memory_to_db(user_id: str, memory: dict):
             memory.get("drive"),
             memory.get("body_type"),
             memory.get("colour"),
+            memory.get("budget", 0),
             memory.get("stage", "awaiting_model"),
         ))
         conn.commit()
@@ -139,9 +145,9 @@ def clear_memory_in_db(user_id: str):
 # -----------------------
 def extract_budget(text: str):
     text = text.lower().replace(",", "").strip()
-    m = re.search(r"(\d+(\.\d+)?)\s*(m|million)", text)
+    m = re.search(r"(\d+(\.\d+)?)\s*(m|million|k|thousand)", text)
     if m:
-        return int(float(m.group(1)) * 1_000_000)
+        return int(float(m.group(1)) * 1_000_000) if m.group(3) in ["m", "million"] else int(float(m.group(1)) * 1_000)
     n = re.search(r"(\d{4,})", text)
     if n:
         return int(n.group(1))
@@ -301,7 +307,7 @@ def update_colour(user_id, new_colour):
 
 def update_budget(user_id, new_budget):
     memory = load_memory_from_db(user_id)
-    memory["budget"] = new_budget
+    memory["budget"] = int(new_budget)
     save_memory_to_db(user_id, memory)
     logging.info(f"[Memory] Budget updated for {user_id}: {new_budget}")
 
@@ -384,7 +390,7 @@ def call_openai_to_json(prompt, memory=None, filter_func=filter_cars_tool):
             if "memory_update" in parsed and filter_func:
                 # reload memory
                 memory = load_memory_from_db(user_id)
-                filtered_data = {k: v for k, v in memory.items() if k != 'stage'}
+                filtered_data = {k: v for k, v in memory.items() if k != 'stage' and k != 'budget'}
                 matches = filter_func(**filtered_data)
                 reply = return_matches_as_text(parsed, matches, is_off_tool=True)
                 parsed['reply'] =  reply 
@@ -631,8 +637,248 @@ def return_matches_as_text(parsed, matches, is_off_tool=False) -> str:
     print(f"Next question and stage: {parsed['next_question']} | {parsed['next_stage']}")
 
     # memory["stage"] = parsed["next_stage"]
-    parsed["reply"] = parsed.get("next_question", "") + "\n" + parsed.get("reply", "Here are options from our stock:") + "\n" + "\n".join(reply_lines)
+    if parsed["next_stage"] == "awaiting_budget" and memory.get("colour") and memory.get("body_type") and memory.get("drive") and (memory.get("model") or memory.get("make")):
+        parsed["reply"] = "What is your budget for the vehicle?"
+    else:
+        parsed["reply"] = parsed.get("next_question", "") + "\n" + parsed.get("reply", "Here are options from our stock:") + "\n" + "\n".join(reply_lines)
+
     return parsed["reply"]
+
+
+def negotiate_price_from_memory(memory, df, user_reply_text):
+    """
+    memory: dict-like object that should include 'budget' (numeric) and optionally other info
+    df: pandas DataFrame with available cars
+    user_reply_text: the immediate user message (e.g., "I want this on hire purchase..." or an answer)
+    Returns: final_result dict with structure:
+      {
+        "listed_price": <int>,
+        "starting_offer": <int>,
+        "final_offer": <int>,
+        "closed": <bool>,
+        "conversation_history": [ { "role": "assistant"/"user", "text": "...", "offer": <int or None> }, ... ],
+        "memory_update": { ... }
+      }
+    """
+    # --- Step 0: get budget from memory (fallback to user input if missing)
+    budget = None
+    if isinstance(memory.get("budget"), (int, float, str)):
+        try:
+            budget = float(memory.get("budget"))
+        except Exception:
+            budget = None
+
+
+    # --- Step 1: pick best car row
+    best_row_df = df
+    geolocation_col = normalize_colname(df, "geolocation")
+    best_geolocation = df[geolocation_col].iloc[0] if not df.empty else None
+    price_col = normalize_colname(best_row_df, "selling_price")
+    if best_row_df is None:
+        return {"error": "No matching car or price column not found."}
+
+    listed_price = int(round(float(best_row_df[price_col].iloc[0])))
+
+    # Starting offer = 90% of selling price (i.e., already at 10% off)
+    starting_offer = int(math.ceil(listed_price * 0.9))
+
+    # Negotiation floor is 50% of selling price (we must not go below this unless exceptional)
+    negotiation_floor = int(math.floor(listed_price * 0.5))
+
+    # Prepare negotiation state
+    current_offer = starting_offer
+    closed = False
+    # conversation_history.append({"user":user_reply_text, "assistant": f"Initial offer: KES {current_offer:,}"})
+
+    # Load negotiation rules from file (optional)
+    try:
+        with open("negotiation_rules.txt", "r") as f:
+            negotiation_rules = f.read()
+    except FileNotFoundError:
+        negotiation_rules = "No negotiation rules file found."
+
+    # Safety: prevent infinite loops by limiting iterations
+    max_rounds = 3
+
+    # Each iteration we send the conversation + state to the LLM, and ask it to:
+    # - respond to the user (reply)
+    # - either accept the user's latest proposal, or produce a new counter-offer (next_offer)
+    # - indicate if sale is closed (closed: true/false)
+    # We enforce JSON-only response via response_format that returns a JSON object (SDK-dependent).
+    for round_idx in range(max_rounds):
+        # Build messages
+        system_content = (
+            "You are a car sales negotiation assistant. When negotiating, be polite and strategic. "
+            "You must never offer below the negotiation_floor unless explicitly instructed. "
+            "Start from the current_offer (which is 90% of the listed price). "
+            "You should attempt step-by-step concessions, closing the deal if the buyer agrees. "
+            "Each response MUST be a single JSON object only (no extra text) with keys:\n"
+            "  next_stage (string),\n"
+            "  memory_update (object),\n"
+            "  reply (string) - assistant visible message,\n"
+            "  next_offer (number or null),\n"
+            "  closed (true/false)\n"
+            "Do not include anything else outside the JSON object."
+        )
+
+        # Compose the user content to give the LLM full state
+        user_content = (
+            f"Negotiation rules:\n{negotiation_rules}\n\n"
+            f"Memory:\n{json.dumps(memory, indent=2)}\n\n"
+            f"Car listed price: {listed_price}\n"
+            f"Current offer: {current_offer}\n"
+            f"Negotiation floor (do not go below): {negotiation_floor}\n"
+            f"Buyer budget: {budget}\n\n"
+            f"conversation_history so far:\n{json.dumps(conversation_history, indent=2)}\n\n"
+            f"Buyer says: \"{user_reply_text}\"\n\n"
+            "Based on the buyer's message, decide whether to:\n"
+            " - accept (closed: true), OR\n"
+            " - make a counter-offer (next_offer) moving stepwise toward floor (prefer small concessions, e.g., 3-10% of the remaining gap), OR\n"
+            " - ask a clarifying question (next_offer can be null in that case).\n\n"
+            "Provide the JSON object now."
+        )
+
+        # Call the LLM. Use response_format to request a JSON object.
+        # Note: your SDK may differ; adapt accordingly.
+        response = llm.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_content},
+                {"role": "user", "content": user_content},
+            ],
+            # Ensure the model returns a JSON object only (SDK-specific param shown per your earlier usage)
+            response_format={"type": "json_object"}
+        )
+
+        # Parse the LLM output; different SDKs place text differently. Adjust if needed.
+        # Example: response.choices[0].message.content  (as in your earlier examples)
+        content_text = response.choices[0].message.content
+        try:
+            llm_result = json.loads(content_text)
+        except Exception as e:
+            # If JSON parsing fails, stop negotiation and log for debugging
+            logging.exception("Failed to parse LLM JSON response. Content was:\n%s", content_text)
+            return {
+                "error": "Failed to parse LLM response.",
+                "llm_raw": content_text
+            }
+
+        # Validate required keys
+        next_stage = llm_result.get("next_stage")
+        memory_update = llm_result.get("memory_update", {})
+        reply = llm_result.get("reply", "")
+        next_offer = llm_result.get("next_offer", None)
+        closed_flag = bool(llm_result.get("closed", False))
+
+        # Append assistant reply to conversation_history
+        # conversation_history.append({"user": user_reply_text, "assistant": reply})
+
+        # Merge memory updates
+        # memory.update(memory_update)
+
+        # If LLM says closed or buyer accepted, we finish
+        if closed_flag:
+            update_stage(user_id, "post_sale_followup")
+            final_offer = next_offer if isinstance(next_offer, (int, float)) else current_offer
+            closed = True
+            return {
+                "listed_price": listed_price,
+                "starting_offer": starting_offer,
+                "final_offer": int(round(final_offer)),
+                "closed": True,
+                "conversation_history": conversation_history,
+                "assistant_message": reply,
+                "memory_update": memory_update,
+            }
+
+        # If LLM asked a question (next_offer is null), the assistant expects a buyer reply.
+        if next_offer is None:
+            # In a live system, you'd now wait for the buyer's reply and call this function again or continue the flow.
+            # Here we return a partial state (assistant asked a clarifying question).
+            return {
+                "listed_price": listed_price,
+                "starting_offer": starting_offer,
+                "current_offer": current_offer,
+                "closed": False,
+                "conversation_history": conversation_history,
+                "awaiting_user": True,
+                "memory_update": memory_update,
+                "assistant_message": reply,
+            }
+
+        # If LLM provided a numeric next_offer, normalize and enforce floor
+        try:
+            proposed_offer = int(round(float(next_offer)))
+        except Exception:
+            # Invalid offer format: stop and return
+            return {
+                "error": "LLM returned invalid next_offer",
+                "llm_result": llm_result
+            }
+
+        # Enforce negotiation floor server-side: do not accept below floor
+        if proposed_offer < negotiation_floor:
+            proposed_offer = negotiation_floor
+
+        # If proposed_offer is same as current or worse (higher than listed price when buyer won't accept),
+        # we limit to a small concession step toward the floor
+        if proposed_offer < current_offer:
+            # valid concession (assistant is lowering seller's price)
+            current_offer = proposed_offer
+        else:
+            # assistant didn't concede; lower by a small step toward floor automatically (5% of remaining gap)
+            gap = current_offer - negotiation_floor
+            if gap <= 0:
+                # can't move further
+                return {
+                    "listed_price": listed_price,
+                    "starting_offer": starting_offer,
+                    "final_offer": current_offer,
+                    "closed": False,
+                    # "conversation_history": conversation_history,
+                    "assistant_message": reply,
+                    "memory_update": memory_update,
+                    "note": "Reached negotiation floor or no further concessions."
+                }
+            concession = max(1, int(round(gap * 0.05)))  # 5% step, at least 1
+            current_offer = current_offer - concession
+
+        # Append the seller counter-offer to conversation_history as assistant's last action (if not already reflected)
+        # conversation_history.append({"user": user_reply_text, "assistant": f"Counter-offer: KES {current_offer:,}"})
+
+        # If we've reached or passed the halfway point, treat as 'closing attempt' in next iteration
+        if current_offer <= negotiation_floor or current_offer <= (listed_price * 0.5):
+            # Final closing attempt: ask buyer if they accept
+            final_prompt = (
+                "Final offer (closing attempt): "
+                f"KES {current_offer:,}. Ask the buyer to confirm acceptance to close the sale. "
+                "Return the JSON object with closed true if buyer accepts; otherwise closed false and next_offer null."
+            )
+            # Send a small prompting call (we could reuse the loop, but to keep demonstration short, return state)
+            return {
+                "listed_price": listed_price,
+                "starting_offer": starting_offer,
+                "current_offer": current_offer,
+                "closed": False,
+                # "conversation_history": conversation_history,
+                "assistant_message": f"Counter-offer: KES {current_offer:,}",
+                "memory_update": memory_update,
+                "assistant_message": f"Our best and final offer is KES {current_offer:,}. If you’re ready, please visit us at {best_geolocation} to complete the purchase."
+
+            }
+
+    # If max rounds exhausted
+    return {
+        "listed_price": listed_price,
+        "starting_offer": starting_offer,
+        "final_offer": current_offer,
+        "closed": closed,
+        "conversation_history": conversation_history,
+        "assistant_message": f"Our best and final offer is KES {current_offer:,}. If you’re ready, please visit us at {best_geolocation} to complete the purchase.",
+        "memory_update": memory_update,
+        "note": "Max negotiation rounds reached"
+    }
+
 
 
 def generate_answer_v1(user_id, message):
@@ -648,38 +894,29 @@ def generate_answer_v1(user_id, message):
     # -----------------------
     # If awaiting budget
     # -----------------------
-    if memory["stage"] == "completed":
-        budget = extract_budget(message)
+    if memory['stage'] == 'post_sale_followup':
+        filtered_memory_post_follow_up = {k: v for k, v in memory.items() if k != 'stage' and k != 'budget'}
+        df_post_follow_up = filter_cars_tool(user_id=user_id, **filtered_memory_post_follow_up)
+        geolocation_col = normalize_colname(df_post_follow_up, "geolocation")
+        best_geolocation = df_post_follow_up[geolocation_col].iloc[0] if not df_post_follow_up.empty else "our dealership"
+        return f"Thank you for choosing us! We hope you enjoy your new car. For any assistance or follow-ups, [visit us anytime at]({best_geolocation})."
+
+
+    if memory["stage"] == "awaiting_budget":
+        # import pdb;pdb.set_trace()
+        user_responses = [x['user'] for x in conversation_history if 'user' in x]
+        budget = extract_budget(' '.join(user_responses + [message]))
         if budget is None:
             logging.warning("Failed to parse budget from message.")
-            return "I couldn't parse your budget. Please enter it like '2,100,000' or '2.1m'."
+            return "What is your budget? Please enter it like '2,100,000' or '2.1m'."
         memory["budget"] = budget
+        update_budget(user_id, budget)
+        filtered_memory = {k: v for k, v in memory.items() if k != 'stage' and k != 'budget'}
+        df_ = filter_cars_tool(user_id=user_id, **filtered_memory)
+        negotiation_result = negotiate_price_from_memory(memory, df_, message)
+        return negotiation_result.get("assistant_message") if "assistant_message" in negotiation_result else negotiation_result.get('conversation_history', [])[-1].get('assistant', "Thank you for your interest.")
 
-        # Filter cars based on memory and budget
-        matches = filter_cars_(df)
-        matches = matches.copy()
-        price_col = normalize_colname(matches, "price")
-        matches[price_col] = pd.to_numeric(matches[price_col], errors="coerce")
-        matches = matches.dropna(subset=[price_col])
-        matches["diff"] = (matches[price_col] - budget).abs()
-        matches = matches.sort_values("diff").head(5)
 
-        if matches.empty:
-            logging.info("No cars match the budget.")
-            return f"Sorry, none of the {memory.get('model','')} options fit your budget of {budget:,} KES."
-
-        # Build reply with relevant fields for budget stage
-        relevant_cols = ["model", "drive", "body_type", "colour", "price"]
-        relevant_cols = [c for c in relevant_cols if normalize_colname(matches, c)]
-        reply_lines = []
-        for _, row in matches.iterrows():
-            line = ", ".join(f"{c}: {row[normalize_colname(matches, c)]}" for c in relevant_cols)
-            reply_lines.append(line)
-        memory["stage"] = "completed"
-        reply = "Here are some options matching your budget:\n" + "\n".join(reply_lines)
-        logging.info(f"Memory after budget stage: {memory}")
-        logging.info(f"Bot reply: {reply}")
-        return reply
 
     # -----------------------
     # Otherwise, ask LLM to detect info and next stage
@@ -711,6 +948,7 @@ def generate_answer_v1(user_id, message):
     # update_memory(memory, parsed.get("memory_update", {}))
     # memory["stage"] = parsed.get("next_stage", memory["stage"])
     logging.info(f"Updated memory: {memory}")
+    # conversation_history.append({"user": message, "assistant": parsed.get("reply", "")})
 
     # -----------------------
     # Filter top 5 cars for the current stage

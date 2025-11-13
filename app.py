@@ -31,7 +31,8 @@ with gr.Blocks(theme=gr.themes.Soft(), css=".gradio-container {max-width: 800px;
     )
 
     with gr.Tab("💬 Chat"):
-        chatbot = gr.Textbox(label="Chat History", lines=15, interactive=False)
+        # chatbot = gr.Textbox(label="Chat History", lines=15, interactive=False)
+        chatbot = gr.Markdown(label="Chat History",line_breaks=True) 
         user_input = gr.Textbox(label="Your Question to Karimi", placeholder="e.g., What’s the best deal on a Toyota Probox?")
         submit = gr.Button("Ask Karimi 🚀")
         submit.click(fn=chat_with_karimi, inputs=user_input, outputs=chatbot)
