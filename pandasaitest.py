@@ -363,7 +363,14 @@ def call_openai_to_json(prompt, memory=None, filter_func=filter_cars_tool):
             if "next_stage" in parsed_content:
                 update_stage(user_id, new_stage=parsed_content["next_stage"])
             if "make" in parsed_content["memory_update"] or "model" in parsed_content["memory_update"]:
+                if memory['make'] or memory['model']:
+                    if memory.get("make") != parsed_content['memory_update'].get("make","") or memory.get("model") != parsed_content['memory_update'].get("model",""): # to cater for multiple searches
+                        parsed_content['memory_update'] = {k: v for k, v in parsed_content['memory_update'].items() if k in ("make", "model")}
+                        clear_memory_in_db(user_id)
+                        print("Cleared memory due to new make/model search. Preparing for new search...")
+                        load_memory_from_db(user_id) # refresh memory after clearing
                 update_make_or_model(user_id, new_make=parsed_content['memory_update'].get("make", ""), new_model=parsed_content['memory_update'].get("model", ""))
+
             if "drive" in parsed_content["memory_update"]:
                 update_drive(user_id, new_drive=parsed_content['memory_update'].get("drive", ""))
             if "body_type" in parsed_content["memory_update"]:
@@ -395,11 +402,21 @@ def call_openai_to_json(prompt, memory=None, filter_func=filter_cars_tool):
             if hasattr(data.message, "tool_calls") and data.message.tool_calls:
                 # reload memory
                 memory = load_memory_from_db(user_id)
+                # import pdb;pdb.set_trace()
+                
                 tool_call = data.message.tool_calls[0]
                 if tool_call.function.name == "filter_cars_":
                     args = json.loads(tool_call.function.arguments)
                     # import pdb;pdb.set_trace()
+                    if "make" in args or "model" in args:
+                        if memory['make'] or memory['model']:
+                            if memory.get("make") != args.get("make","") or memory.get("model") != args.get("model",""): # to cater for multiple searches
+                                args = {k: v for k, v in args.items() if k in ("make", "model")}
+                                clear_memory_in_db(user_id)
+                                print("Cleared memory due to new make/model search. Preparing for new search...")
+                                load_memory_from_db(user_id) # refresh memory after clearing
 
+                    update_make_or_model(user_id, new_make=args.get("make", ""), new_model=args.get("model", ""))
                     matches = filter_func(**args)
                     # import pdb;pdb.set_trace()
                     reply = return_matches_as_text(parsed, matches,is_off_tool=False)
@@ -668,7 +685,7 @@ def generate_answer_v1(user_id, message):
     # Otherwise, ask LLM to detect info and next stage
     # -----------------------
     prompt = f"""
-    Conversation memory: {json.dumps(memory)}
+    Conversation memory: {json.dumps(load_memory_from_db(user_id))}
     Customer message: "{message}"
 
     ### TASK
