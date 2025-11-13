@@ -203,7 +203,10 @@ def filter_cars_tool(user_id=user_id, make=None, model=None, drive=None, body_ty
                 filtered = filtered[filtered[col].astype(str).str.lower().str.contains(str(val).lower(), na=False)]
 
     # Persist the latest memory state
-    save_memory_to_db(user_id, memory)
+    if filtered.empty:
+        logging.info(f"[Tool] No matches found when filtering with memory: {memory}")
+    else:
+        save_memory_to_db(user_id, memory)
     logging.info(f"[Tool] Filtered {len(filtered)} cars using structured memory: {memory}")
     return filtered
 
@@ -375,7 +378,7 @@ def call_openai_to_json(prompt, memory=None, filter_func=filter_cars_tool):
                         clear_memory_in_db(user_id)
                         print("Cleared memory due to new make/model search. Preparing for new search...")
                         load_memory_from_db(user_id) # refresh memory after clearing
-                update_make_or_model(user_id, new_make=parsed_content['memory_update'].get("make", ""), new_model=parsed_content['memory_update'].get("model", ""))
+                update_make_or_model(user_id, new_make=parsed_content['memory_update'].get("make", "") if parsed_content['memory_update'].get("make", "") else parsed_content['memory_update'].get("model", ""), new_model=parsed_content['memory_update'].get("model", "") if parsed_content['memory_update'].get("model", "") else parsed_content['memory_update'].get("make", ""))
 
             if "drive" in parsed_content["memory_update"]:
                 update_drive(user_id, new_drive=parsed_content['memory_update'].get("drive", ""))
@@ -422,8 +425,9 @@ def call_openai_to_json(prompt, memory=None, filter_func=filter_cars_tool):
                                 print("Cleared memory due to new make/model search. Preparing for new search...")
                                 load_memory_from_db(user_id) # refresh memory after clearing
 
-                    update_make_or_model(user_id, new_make=args.get("make", ""), new_model=args.get("model", ""))
-                    matches = filter_func(**args)
+                    update_make_or_model(user_id, new_make=args.get("make", "") if args.get("make", "") else args.get("model", ""), new_model=args.get("model", "") if args.get("model", "") else args.get("make", ""))
+                    filtered_dataset_ = {k: v for k, v in args.items() if k != 'stage' and k != 'budget'}
+                    matches = filter_func(**filtered_dataset_)
                     # import pdb;pdb.set_trace()
                     reply = return_matches_as_text(parsed, matches,is_off_tool=False)
                     parsed["reply"] = reply
@@ -529,7 +533,43 @@ filter_cars_ = FilterCarsTool(df)
 def return_matches_as_text(parsed, matches, is_off_tool=False) -> str:
     # import pdb;pdb.set_trace()
     if matches.empty:
-        return "No matching cars found."
+        # Get all available models from your DataFrame
+        model_col = normalize_colname(df, "model")
+        available_models = df[model_col].dropna().unique().tolist()
+
+        response_empty = llm.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a friendly and helpful car sales assistant. "
+                        f"keep into context the conversation_history: {conversation_history}"
+                        "The user asked for cars, but no exact matches were found. "
+                        f"Available models: {available_models}. "
+                        "Suggest the closest matching options from this list. "
+                        "Return your response strictly as a JSON object with these keys:\n"
+                        "  reply: the message to display to the user\n"
+                        "  suggested_models: a list of closest available models\n"
+                        "  next_action: what the assistant should do next (e.g., 'ask_if_user_wants_suggestions')\n"
+                        "Do not include any text outside the JSON object."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": "No matching cars were found based on the current criteria."
+                }
+            ],
+            response_format={"type": "json_object"}
+        )
+
+        # Parse the LLM response (depends on SDK, adjust if needed)
+        llm_result = response_empty.choices[0].message.content
+        # import pdb;pdb.set_trace()
+        response_gotten = json.loads(llm_result).get("reply", "Sorry, I couldn't find any cars matching your criteria.") + ','.join(json.loads(llm_result).get("suggested_models", ""))
+        return response_gotten  # JSON object: {"reply": "...", "suggested_models": [...], "next_action": "..."}
+
+        
 
     # Convert to DataFrame for easy grouping/filtering
     logging.info(f"Tool returned {len(matches)} matches.")
@@ -633,6 +673,7 @@ def return_matches_as_text(parsed, matches, is_off_tool=False) -> str:
     # print(f"Saving memory: {memory}")
     if not is_off_tool:
         update_stage(user_id, parsed["next_stage"])
+    
     print("Memory after stage update:", load_memory_from_db(user_id))
     print(f"Next question and stage: {parsed['next_question']} | {parsed['next_stage']}")
 
@@ -899,7 +940,8 @@ def generate_answer_v1(user_id, message):
         df_post_follow_up = filter_cars_tool(user_id=user_id, **filtered_memory_post_follow_up)
         geolocation_col = normalize_colname(df_post_follow_up, "geolocation")
         best_geolocation = df_post_follow_up[geolocation_col].iloc[0] if not df_post_follow_up.empty else "our dealership"
-        return f"Thank you for choosing us! We hope you enjoy your new car. For any assistance or follow-ups, [visit us anytime at]({best_geolocation})."
+        return f"Thank you for choosing us! Ready to finalize the deal? Please [Visit us anytime here]({best_geolocation})."
+
 
 
     if memory["stage"] == "awaiting_budget":
