@@ -318,7 +318,7 @@ def update_budget(user_id, new_budget):
 # -----------------------
 # Call OpenAI API for JSON
 # -----------------------
-def call_openai_to_json(prompt, memory=None, filter_func=filter_cars_tool):
+def call_openai_to_json(prompt, memory=None, user_message=None, filter_func=filter_cars_tool):
     """
     Call the LLM to extract memory updates, next stage, and generate a reply.
     Integrates filtering at every stage using a tool.
@@ -395,7 +395,7 @@ def call_openai_to_json(prompt, memory=None, filter_func=filter_cars_tool):
                 memory = load_memory_from_db(user_id)
                 filtered_data = {k: v for k, v in memory.items() if k != 'stage' and k != 'budget'}
                 matches = filter_func(**filtered_data)
-                reply = return_matches_as_text(parsed, matches, is_off_tool=True)
+                reply = return_matches_as_text(parsed, matches, user_message=user_message, is_off_tool=True)
                 parsed['reply'] =  reply 
             else:
                 parsed['reply'] = parsed.get('reply','') + parsed.get('next_question','')
@@ -429,7 +429,7 @@ def call_openai_to_json(prompt, memory=None, filter_func=filter_cars_tool):
                     filtered_dataset_ = {k: v for k, v in args.items() if k != 'stage' and k != 'budget'}
                     matches = filter_func(**filtered_dataset_)
                     # import pdb;pdb.set_trace()
-                    reply = return_matches_as_text(parsed, matches,is_off_tool=False)
+                    reply = return_matches_as_text(parsed, matches, user_message=user_message, is_off_tool=False)
                     parsed["reply"] = reply
         return parsed
 
@@ -530,7 +530,7 @@ def FilterCarsTool(df):
 
 filter_cars_ = FilterCarsTool(df)
 
-def return_matches_as_text(parsed, matches, is_off_tool=False) -> str:
+def return_matches_as_text(parsed, matches, user_message=None, is_off_tool=False) -> str:
     # import pdb;pdb.set_trace()
     if matches.empty:
         # Get all available models from your DataFrame
@@ -557,7 +557,7 @@ def return_matches_as_text(parsed, matches, is_off_tool=False) -> str:
                 },
                 {
                     "role": "user",
-                    "content": "No matching cars were found based on the current criteria."
+                    "content": user_message if user_message else "No matches found."
                 }
             ],
             response_format={"type": "json_object"}
@@ -985,7 +985,7 @@ def generate_answer_v1(user_id, message):
         "next_question": "..."
     }}
     """
-    parsed = call_openai_to_json(prompt, memory)
+    parsed = call_openai_to_json(prompt, memory=memory, user_message=message)
     print(f"Parsed LLM response: {parsed}")
     # update_memory(memory, parsed.get("memory_update", {}))
     # memory["stage"] = parsed.get("next_stage", memory["stage"])
