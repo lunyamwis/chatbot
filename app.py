@@ -1,7 +1,7 @@
 # app.py
 import json
 import gradio as gr
-from pandasaitest import build_messages, conversation_history, generate_user_profile
+from pandasaitest import build_messages, load_conversation_history, generate_user_profile,user_id
 
 def chat_with_karimi(user_input):
     if not user_input.strip():
@@ -12,12 +12,19 @@ def chat_with_karimi(user_input):
         return "⚠️ Session flagged — user has detected that you are a robot."
     # Display conversation history
     chat_display = "\n\n".join(
-        [f"👤 {c['user']}\n🤖 {c['assistant']}" for c in conversation_history]
+        [f"👤 {c['user_message']}\n🤖 {c['assistant_message']}" for c in load_conversation_history(user_id)]
     )
     return chat_display
 
+def load_chat_display():
+    history = load_conversation_history(user_id)
+    return "\n\n".join(
+        [f"👤 {c['user_message']}\n🤖 {c['assistant_message']}" for c in history]
+    )
+
+
 def view_user_profile():
-    profile = generate_user_profile(conversation_history)
+    profile = generate_user_profile(load_conversation_history(user_id))
     return json.dumps(profile, indent=2)
 
 with gr.Blocks(theme=gr.themes.Soft(), css=".gradio-container {max-width: 800px; margin: auto;}") as demo:
@@ -38,9 +45,16 @@ with gr.Blocks(theme=gr.themes.Soft(), css=".gradio-container {max-width: 800px;
         submit.click(fn=chat_with_karimi, inputs=user_input, outputs=chatbot)
         submit.click(lambda: "", None, user_input)  # clears input
 
+        # gr.on(  # or demo.load() if using latest Gradio
+        #     "load", fn=load_chat_display, inputs=None, outputs=chatbot
+        # )
+
     with gr.Tab("🧠 User Profile"):
         profile_box = gr.Code(label="Generated User Profile (JSON)", language="json")
         profile_btn = gr.Button("Generate Profile 🪄")
         profile_btn.click(fn=view_user_profile, inputs=None, outputs=profile_box)
+
+
+    demo.load(fn=load_chat_display, inputs=None, outputs=chatbot)
 
 demo.launch(server_name="0.0.0.0", server_port=7860, share=True)

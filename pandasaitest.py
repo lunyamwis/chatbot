@@ -8,6 +8,7 @@ import requests
 import logging
 import math
 from openai import OpenAI
+from models import Base, engine, SessionLocal, ConversationMemory, ConversationHistory
 # import pandasai as pai
 # from pandasai_litellm.litellm import LiteLLM
 
@@ -43,7 +44,6 @@ df = pd.read_csv("/home/martin/Downloads/motorvehicles.csv")
 # Conversation memory
 # -----------------------
 conversation_memory = {}
-conversation_history = []
 
 FILTER_FIELDS = ["make", "model", "drive", "body_type", "colour", "budget", "stage","next_stage"]
 stages_mapper = {
@@ -66,127 +66,112 @@ user_id = "martin"
 conversation_memory[user_id] = {field: None for field in FILTER_FIELDS}
 conversation_memory[user_id]["stage"] = "awaiting_model"
 
-def init_memory_db():
-    """Initialize the SQLite table with real columns."""
-    with closing(sqlite3.connect(DB_PATH)) as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS conversation_memory (
-                user_id TEXT PRIMARY KEY,
-                make TEXT,
-                model TEXT,
-                drive TEXT,
-                body_type TEXT,
-                colour TEXT,
-                budget INTEGER,
-                stage TEXT
-            )
-        """)
-        conn.commit()
 
+
+def init_db():
+    Base.metadata.create_all(bind=engine)
 
 def load_memory_from_db(user_id: str) -> dict:
-    """Load the memory for a given user_id; return defaults if not found."""
-    with closing(sqlite3.connect(DB_PATH)) as conn:
-        cur = conn.execute("SELECT make, model, drive, body_type, colour, budget,stage FROM conversation_memory WHERE user_id = ?", (user_id,))
-        row = cur.fetchone()
+    session = SessionLocal()
+    record = session.query(ConversationMemory).filter_by(user_id=user_id).first()
+    session.close()
 
-    if row:
-        make, model, drive, body_type, colour, budget, stage = row
-    else:
-        make = model = drive = body_type = colour = None
-        budget = 0
-        stage = "awaiting_model"
+    if not record:
+        return {
+            "make": None,
+            "model": None,
+            "drive": None,
+            "body_type": None,
+            "colour": None,
+            "budget": 0,
+            "stage": "awaiting_model",
+        }
 
     return {
-        "make": make,
-        "model": model,
-        "drive": drive,
-        "body_type": body_type,
-        "colour": colour,
-        "budget": budget,
-        "stage": stage
+        "make": record.make,
+        "model": record.model,
+        "drive": record.drive,
+        "body_type": record.body_type,
+        "colour": record.colour,
+        "budget": record.budget,
+        "stage": record.stage,
     }
 
+
+
+
 def save_memory_to_db(user_id: str, memory: dict):
-    # import pdb;pdb.set_trace()
-    """Insert or update the user's memory record."""
-    with closing(sqlite3.connect(DB_PATH)) as conn:
-        conn.execute("""
-            INSERT INTO conversation_memory (user_id, make, model, drive, body_type, colour, budget, stage)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(user_id) DO UPDATE SET
-                make=excluded.make,
-                model=excluded.model,
-                drive=excluded.drive,
-                body_type=excluded.body_type,
-                colour=excluded.colour,
-                budget=excluded.budget,
-                stage=excluded.stage
-        """, (
-            user_id,
-            memory.get("make"),
-            memory.get("model"),
-            memory.get("drive"),
-            memory.get("body_type"),
-            memory.get("colour"),
-            memory.get("budget", 0),
-            memory.get("stage", "awaiting_model"),
-        ))
-        conn.commit()
+    session = SessionLocal()
+
+    record = session.query(ConversationMemory).filter_by(user_id=user_id).first()
+
+    if not record:
+        record = ConversationMemory(user_id=user_id)
+
+    record.make = memory.get("make")
+    record.model = memory.get("model")
+    record.drive = memory.get("drive")
+    record.body_type = memory.get("body_type")
+    record.colour = memory.get("colour")
+    record.budget = memory.get("budget", 0)
+    record.stage = memory.get("stage", "awaiting_model")
+
+    session.add(record)
+    session.commit()
+    session.close()
+
+
 
 def clear_memory_in_db(user_id: str):
-    """Remove a user’s memory record."""
-    with closing(sqlite3.connect(DB_PATH)) as conn:
-        conn.execute("DELETE FROM conversation_memory WHERE user_id = ?", (user_id,))
-        conn.commit()
-
-
-
-def init_conversation_history_db():
-    """Create a table to store full conversation history."""
-    with closing(sqlite3.connect(DB_PATH)) as conn:
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS conversation_history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT,
-                user_message TEXT,
-                assistant_message TEXT,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        conn.commit()
+    session = SessionLocal()
+    session.query(ConversationMemory).filter_by(user_id=user_id).delete()
+    session.commit()
+    session.close()
 
 
 def append_conversation_history(user_id: str, user_msg: str, assistant_msg: str):
-    """Append a single conversation turn into history."""
-    with closing(sqlite3.connect(DBATH)) as conn:
-        conn.execute("""
-            INSERT INTO conversation_history (user_id, user_message, assistant_message)
-            VALUES (?, ?, ?)
-        """, (user_id, user_msg, assistant_msg))
-        conn.commit()
+    session = SessionLocal()
+
+    entry = ConversationHistory(
+        user_id=user_id,
+        user_message=user_msg,
+        assistant_message=assistant_msg
+    )
+
+    session.add(entry)
+    session.commit()
+    session.close()
 
 
 def load_conversation_history(user_id: str):
-    """Retrieve all conversations for a user."""
-    with closing(sqlite3.connect(DB_PATH)) as conn:
-        cur = conn.execute("""
-            SELECT user_message, assistant_message, timestamp
-            FROM conversation_history
-            WHERE user_id = ?
-            ORDER BY id ASC
-        """, (user_id,))
-        return cur.fetchall()
+    session = SessionLocal()
+    rows = (
+        session.query(ConversationHistory)
+        .filter_by(user_id=user_id)
+        .order_by(ConversationHistory.id.asc())
+        .all()
+    )
+    session.close()
+
+    return [
+        {
+            "user_message": row.user_message,
+            "assistant_message": row.assistant_message,
+            "timestamp": row.timestamp.isoformat() if row.timestamp else None
+        }
+        for row in rows
+    ]
+
 
 
 def clear_conversation_history(user_id: str):
-    """Delete entire conversation history for a user."""
-    with closing(sqlite3.connect(DB_PATH)) as conn:
-        conn.execute("""
-            DELETE FROM conversation_history WHERE user_id = ?
-        """, (user_id,))
-        conn.commit()
+    session = SessionLocal()
+    session.query(ConversationHistory).filter_by(user_id=user_id).delete()
+    session.commit()
+    session.close()
 
+
+conversation_history = load_conversation_history(user_id)
 # -----------------------
 # Helpers
 # -----------------------
@@ -776,7 +761,7 @@ def negotiate_price_from_memory(memory, df, user_reply_text):
     # Prepare negotiation state
     current_offer = starting_offer
     closed = False
-    # conversation_history.append({"user":user_reply_text, "assistant": f"Initial offer: KES {current_offer:,}"})
+    # append_conversation_history({"user":user_reply_text, "assistant": f"Initial offer: KES {current_offer:,}"})
 
     # Load negotiation rules from file (optional)
     try:
@@ -859,7 +844,7 @@ def negotiate_price_from_memory(memory, df, user_reply_text):
         closed_flag = bool(llm_result.get("closed", False))
 
         # Append assistant reply to conversation_history
-        # conversation_history.append({"user": user_reply_text, "assistant": reply})
+        # append_conversation_history({"user": user_reply_text, "assistant": reply})
 
         # Merge memory updates
         # memory.update(memory_update)
@@ -932,7 +917,7 @@ def negotiate_price_from_memory(memory, df, user_reply_text):
             current_offer = current_offer - concession
 
         # Append the seller counter-offer to conversation_history as assistant's last action (if not already reflected)
-        # conversation_history.append({"user": user_reply_text, "assistant": f"Counter-offer: KES {current_offer:,}"})
+        # append_conversation_history({"user": user_reply_text, "assistant": f"Counter-offer: KES {current_offer:,}"})
 
         # If we've reached or passed the halfway point, treat as 'closing attempt' in next iteration
         if current_offer <= negotiation_floor or current_offer <= (listed_price * 0.5):
@@ -1037,7 +1022,7 @@ def generate_answer_v1(user_id, message):
     # update_memory(memory, parsed.get("memory_update", {}))
     # memory["stage"] = parsed.get("next_stage", memory["stage"])
     logging.info(f"Updated memory: {memory}")
-    # conversation_history.append({"user": message, "assistant": parsed.get("reply", "")})
+    # append_conversation_history({"user": message, "assistant": parsed.get("reply", "")})
 
     # -----------------------
     # Filter top 5 cars for the current stage
@@ -1144,7 +1129,7 @@ def build_messages(customer_question: str, conversation_history: list = conversa
             "message": "Session flagged — user accused assistant of being a robot or threatened escalation.",
         }
         print("⚠️ Robot accusation detected. Session flagged.")
-        conversation_history.append({"user": customer_question, "assistant": "[FLAGGED] Robot accusation detected."})
+        append_conversation_history(**{"user_id": user_id, "user_msg": customer_question, "assistant_msg": "[FLAGGED] Robot accusation detected."})
         return json.dumps(error_response)
 
 
@@ -1158,7 +1143,7 @@ def build_messages(customer_question: str, conversation_history: list = conversa
         print(f"Error occurred: {e}")
 
     print(f"Generated answer: {answer}")
-    conversation_history.append({"user": customer_question, "assistant": answer})
+    append_conversation_history(**{"user_id": user_id, "user_msg": customer_question, "assistant_msg": answer})
     return answer
 
     # header = {
@@ -1182,7 +1167,7 @@ def build_messages(customer_question: str, conversation_history: list = conversa
     #     gpt_response = "Be right back have to step out for a sec."
     #     print(f"Error occurred while saving response: {e}")
 
-    # conversation_history.append({"user": customer_question, "assistant": gpt_response})
+    # append_conversation_history({"user": customer_question, "assistant": gpt_response})
     # return gpt_response
 
 
