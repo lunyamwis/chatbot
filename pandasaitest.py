@@ -140,6 +140,53 @@ def clear_memory_in_db(user_id: str):
         conn.execute("DELETE FROM conversation_memory WHERE user_id = ?", (user_id,))
         conn.commit()
 
+
+
+def init_conversation_history_db():
+    """Create a table to store full conversation history."""
+    with closing(sqlite3.connect(DB_PATH)) as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS conversation_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT,
+                user_message TEXT,
+                assistant_message TEXT,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.commit()
+
+
+def append_conversation_history(user_id: str, user_msg: str, assistant_msg: str):
+    """Append a single conversation turn into history."""
+    with closing(sqlite3.connect(DBATH)) as conn:
+        conn.execute("""
+            INSERT INTO conversation_history (user_id, user_message, assistant_message)
+            VALUES (?, ?, ?)
+        """, (user_id, user_msg, assistant_msg))
+        conn.commit()
+
+
+def load_conversation_history(user_id: str):
+    """Retrieve all conversations for a user."""
+    with closing(sqlite3.connect(DB_PATH)) as conn:
+        cur = conn.execute("""
+            SELECT user_message, assistant_message, timestamp
+            FROM conversation_history
+            WHERE user_id = ?
+            ORDER BY id ASC
+        """, (user_id,))
+        return cur.fetchall()
+
+
+def clear_conversation_history(user_id: str):
+    """Delete entire conversation history for a user."""
+    with closing(sqlite3.connect(DB_PATH)) as conn:
+        conn.execute("""
+            DELETE FROM conversation_history WHERE user_id = ?
+        """, (user_id,))
+        conn.commit()
+
 # -----------------------
 # Helpers
 # -----------------------
