@@ -590,7 +590,7 @@ def refer_from_the_knowledgebase_tool(message):
     # Use this pattern to search the DataFrame
     closest_matches = df[df['MAKE'].str.contains(regex_pattern, case=False, na=False)]
 
-    - Partial Make/Model similarity (highest priority).
+    - Partial Make/Model similarity (highest priority) 
     If the user requests a specific model and there are no exact matches, return all cars from the same make as a fallback.
     Example: if the user requests a specific model like "Mazda CX-5" and no exact match exists, return all cars from the same make (e.g., all Mazdas) as alternative options.
     
@@ -607,7 +607,7 @@ def refer_from_the_knowledgebase_tool(message):
 
     ## **4. Output Rules**
 
-    * Always output a **DataFrame** (never empty).
+    * Always output a **DataFrame** (never empty). show the color , model and features
     * Never raise errors.
     * Keep the explanation short.
     * Only add the price when the user's request contains wording about price, budget, or 'how much'.
