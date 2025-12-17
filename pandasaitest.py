@@ -590,7 +590,7 @@ def refer_from_the_knowledgebase_tool(message):
     # Use this pattern to search the DataFrame
     closest_matches = df[df['MAKE'].str.contains(regex_pattern, case=False, na=False)]
 
-    - Partial Make/Model similarity (highest priority). Ignore differences in colour and fuel type when ranking matches.
+    - Partial Make/Model similarity (highest priority).
     If the user requests a specific model and there are no exact matches, return all cars from the same make as a fallback.
     Example: if the user requests a specific model like "Mazda CX-5" and no exact match exists, return all cars from the same make (e.g., all Mazdas) as alternative options.
     
@@ -612,15 +612,7 @@ def refer_from_the_knowledgebase_tool(message):
     * Keep the explanation short.
     * Only add the price when the user's request contains wording about price, budget, or 'how much'.
 
-    IMPORTANT — MODEL CONSISTENCY RULE:
-
-    Once a MAKE and MODEL has been mentioned by the user in the user request or conversation history:{load_conversation_history(user_id)} :
-    - You MUST continue referring to the SAME MAKE and MODEL
-    - You MUST NOT introduce, compare, or mention a different model
-    - You MUST NOT substitute with a similar or popular model
-
-    If you violate this rule, your answer is incorrect.
-
+   
 
     """
 
