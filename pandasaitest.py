@@ -607,7 +607,7 @@ def refer_from_the_knowledgebase_tool(message):
 
     ## **4. Output Rules**
 
-    * Always output a **DataFrame** (never empty). show the color , model and features
+    * Always output a **DataFrame** (never empty). show the color , model and features giving preference to make/model even though color vary
     * Never raise errors.
     * Keep the explanation short.
     * Only add the price when the user's request contains wording about price, budget, or 'how much'.
