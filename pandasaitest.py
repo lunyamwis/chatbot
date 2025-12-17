@@ -635,7 +635,7 @@ def refer_from_the_knowledgebase_tool(message):
         provider="huggingface",
         model="mistral-small-3.2-24b-instruct-2506",  # or one of the others
         temperature=0.1,
-        max_tokens=2048
+        max_tokens=2048,
         # timeout=60,
         # max_retries=1
         # api_key=os.getenv("OPENAI_API_KEY"),
