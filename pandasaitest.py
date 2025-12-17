@@ -56,7 +56,6 @@ def load_conversation_history(user_id: str) -> list:
         return results
 
 llm = OpenAI(api_key=os.getenv("OPENAI_API_KEY").strip())
-print(f"api openai ----- > {os.getenv('OPENAI_API_KEY').strip()}")
 
 # -----------------------
 # Logging setup
@@ -631,7 +630,9 @@ def refer_from_the_knowledgebase_tool(message):
         # provider="openai",
         # api_key=os.getenv("OPENAI_API_KEY"),  # Make sure your token is in env.strip()
         max_tokens=4096,
-        temperature=0.1
+        temperature=0.1,
+        api_key=os.getenv("OPENAI_API_KEY"),
+        provider="openai"
     )
     agent = CodeAgent(
         model=model,
