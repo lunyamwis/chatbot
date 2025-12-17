@@ -13,7 +13,7 @@ def add_comment(comment_text):
         return load_comments()
     session = SessionLocal()
     comment_entry = Comments(
-        user_id=user_id,
+        user_id="hassan",
         comment_text=comment_text,
         timestamp=datetime.utcnow()
     )
@@ -24,7 +24,7 @@ def add_comment(comment_text):
 
 def load_comments():
     session = SessionLocal()
-    comments = session.query(Comments).filter_by(user_id=user_id).order_by(Comments.timestamp).all()
+    comments = session.query(Comments).filter_by(user_id="hassan").order_by(Comments.timestamp).all()
     session.close()
     if not comments:
         return "No comments yet."
