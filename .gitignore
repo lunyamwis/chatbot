@@ -1,0 +1,17 @@
+*.pyc
+*.tmp
+*.swp
+*.db
+*.sqlite3
+*/settings_*.py
+*.iml
+.idea
+DEL
+*.sql
+*.bak
+env*
+.env
+token.json
+schema.json
+credentials.json
+results.csv
