@@ -533,8 +533,7 @@ def analyze_conversation_history_and_update_context(conversation_history: list, 
 
 
 
-
-from smolagents.models.openai import OpenAIModel
+from smolagents.models import OpenAIServerModel
 
 
 def refer_from_the_knowledgebase_tool(message):
@@ -642,8 +641,7 @@ def refer_from_the_knowledgebase_tool(message):
     #     # api_key=os.getenv("OPENAI_API_KEY"),
     #     # provider="openai"
     # )
-    model = OpenAIModel(model="gpt-4o-mini", api_key=os.getenv("OPENAI_API_KEY"))
-
+    model = OpenAIServerModel(model_id="gpt-4o-mini", api_key=os.getenv("OPENAI_API_KEY").strip())
     agent = CodeAgent(
         model=model,
         tools=[],
