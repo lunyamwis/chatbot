@@ -56,7 +56,7 @@ def load_conversation_history(user_id: str) -> list:
         return results
 
 llm = OpenAI(api_key=os.getenv("OPENAI_API_KEY").strip())
-
+print(f"api openai ----- > {os.getenv("OPENAI_API_KEY").strip()}")
 
 # -----------------------
 # Logging setup
