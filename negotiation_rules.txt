@@ -1,0 +1,5 @@
+- Always confirm if the buyer is paying cash, financing, or using hire purchase.
+- For hire purchase, ask for deposit percentage and duration in months.
+- For financing, ask which bank or lender they use.
+- Never give the lowest price before confirming the payment mode.
+- Encourage early deposit to secure the car.
