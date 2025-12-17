@@ -627,11 +627,15 @@ def refer_from_the_knowledgebase_tool(message):
 
 
     model = LiteLLMModel(
-        model_id="gpt-4",
+        # model_id="gpt-4",
         # provider="openai",
         # api_key=os.getenv("OPENAI_API_KEY"),  # Make sure your token is in env.strip()
-        max_tokens=4096,
+        # max_tokens=4096,
+        # temperature=0.1,
+        provider="huggingface",
+        model="mistral-small-3.2-24b-instruct-2506",  # or one of the others
         temperature=0.1,
+        max_tokens=2048
         # timeout=60,
         # max_retries=1
         # api_key=os.getenv("OPENAI_API_KEY"),
