@@ -11,6 +11,7 @@ DEL
 *.bak
 env*
 .env
+env/
 token.json
 schema.json
 credentials.json
