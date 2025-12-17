@@ -56,8 +56,8 @@ def load_conversation_history(user_id: str) -> list:
         return results
 
 llm = OpenAI(api_key=os.getenv("OPENAI_API_KEY").strip())
-import litellm
-litellm._turn_on_debug()
+# import litellm
+# litellm._turn_on_debug()
 # -----------------------
 # Logging setup
 # -----------------------
@@ -627,7 +627,7 @@ def refer_from_the_knowledgebase_tool(message):
 
 
     model = LiteLLMModel(
-        model_id="gpt-4o-mini",
+        model_id="gpt-4",
         # provider="openai",
         # api_key=os.getenv("OPENAI_API_KEY"),  # Make sure your token is in env.strip()
         max_tokens=4096,
