@@ -632,8 +632,8 @@ def refer_from_the_knowledgebase_tool(message):
         # api_key=os.getenv("OPENAI_API_KEY"),  # Make sure your token is in env.strip()
         max_tokens=4096,
         temperature=0.1,
-        timeout=60,
-        max_retries=1
+        # timeout=60,
+        # max_retries=1
         # api_key=os.getenv("OPENAI_API_KEY"),
         # provider="openai"
     )
