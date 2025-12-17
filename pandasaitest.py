@@ -534,6 +534,7 @@ def analyze_conversation_history_and_update_context(conversation_history: list, 
 
 
 
+from smolagents.models.openai import OpenAIModel
 
 
 def refer_from_the_knowledgebase_tool(message):
@@ -626,21 +627,23 @@ def refer_from_the_knowledgebase_tool(message):
 
 
 
-    model = LiteLLMModel(
-        # model_id="gpt-4",
-        # provider="openai",
-        # api_key=os.getenv("OPENAI_API_KEY"),  # Make sure your token is in env.strip()
-        # max_tokens=4096,
-        # temperature=0.1,
-        # provider="huggingface",
-        model="openai/gpt-4o-mini",  # or one of the others
-        temperature=0.1,
-        max_tokens=2048,
-        # timeout=60,
-        # max_retries=1
-        # api_key=os.getenv("OPENAI_API_KEY"),
-        # provider="openai"
-    )
+    # model = LiteLLMModel(
+    #     # model_id="gpt-4",
+    #     # provider="openai",
+    #     # api_key=os.getenv("OPENAI_API_KEY"),  # Make sure your token is in env.strip()
+    #     # max_tokens=4096,
+    #     # temperature=0.1,
+    #     # provider="huggingface",
+    #     model="openai/gpt-4o-mini",  # or one of the others
+    #     temperature=0.1,
+    #     max_tokens=2048,
+    #     # timeout=60,
+    #     # max_retries=1
+    #     # api_key=os.getenv("OPENAI_API_KEY"),
+    #     # provider="openai"
+    # )
+    model = OpenAIModel(model="gpt-4o-mini", api_key=os.getenv("OPENAI_API_KEY"))
+
     agent = CodeAgent(
         model=model,
         tools=[],
