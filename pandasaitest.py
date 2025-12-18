@@ -545,10 +545,10 @@ def refer_from_the_knowledgebase_tool(message):
     **MAKE, MODEL, GRADE, CHASSIS NO, COLOUR, IMAGE_URL, ENGINE CC, MILEAGE, YEAR/MONTH, LOCATION, PRICE, FEATURES**
 
     * A user request:
-    `{message}` - and the user chat history:{load_conversation_history(user_id)}
+    `{message}` 
 
     ## **Your Task**
-    you can infer the model from the following memory:{load_memory_from_db(user_id)}
+    you can infer the model from the following memory:{load_conversation_history(user_id)}
 
     Use pandas to return the **best matching cars** from the DataFrame based on the user's request.
     You must always return a **non-empty DataFrame**.
@@ -608,7 +608,8 @@ def refer_from_the_knowledgebase_tool(message):
 
     ## **4. Output Rules**
 
-    * Always output a **DataFrame** (never empty). show the make, model, color, stock_id  giving preference to make/model even though color vary
+    * Always output a **DataFrame** (never empty). 
+    * Return only the necessary columns based on the user’s query. Always include the stock ID, as it is consistent across results.
     * Never raise errors.
     * Keep the explanation short.
     * Only add the price when the user's request contains wording about price, budget, or 'how much'.
