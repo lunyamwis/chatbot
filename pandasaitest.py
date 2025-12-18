@@ -609,7 +609,7 @@ def refer_from_the_knowledgebase_tool(message):
     ## **4. Output Rules**
 
     * Always output a **DataFrame** (never empty). 
-    * Return only the necessary columns based on the user’s query. Always include the stock ID, as it is consistent across results.
+    * Return columns dynamically based on the user’s query (e.g., color or mileage), while always including the stock ID, which remains consistent. 
     * Never raise errors.
     * Keep the explanation short.
     * Only add the price when the user's request contains wording about price, budget, or 'how much'.
