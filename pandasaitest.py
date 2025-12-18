@@ -608,7 +608,7 @@ def refer_from_the_knowledgebase_tool(message):
 
     ## **4. Output Rules**
 
-    * Always output a **DataFrame** (never empty). show the make, model, color  giving preference to make/model even though color vary
+    * Always output a **DataFrame** (never empty). show the make, model, color, stock_id  giving preference to make/model even though color vary
     * Never raise errors.
     * Keep the explanation short.
     * Only add the price when the user's request contains wording about price, budget, or 'how much'.
