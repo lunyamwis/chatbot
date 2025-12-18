@@ -548,6 +548,7 @@ def refer_from_the_knowledgebase_tool(message):
     `{message}` - and the user chat history:{load_conversation_history(user_id)}
 
     ## **Your Task**
+    you can infer the model from the following memory:{load_memory_from_db(user_id)}
 
     Use pandas to return the **best matching cars** from the DataFrame based on the user's request.
     You must always return a **non-empty DataFrame**.
@@ -607,7 +608,7 @@ def refer_from_the_knowledgebase_tool(message):
 
     ## **4. Output Rules**
 
-    * Always output a **DataFrame** (never empty). show the color , model and features giving preference to make/model even though color vary
+    * Always output a **DataFrame** (never empty). show the make, model, color and features giving preference to make/model even though color vary
     * Never raise errors.
     * Keep the explanation short.
     * Only add the price when the user's request contains wording about price, budget, or 'how much'.
@@ -685,13 +686,11 @@ def vehicle_enquiry_agent(user_message=None) -> str:
         - trigger the refer_from_the_knowledgebase_tool to perform a car search and check its availability.            
 
     If {user_message} is a very brief ambigous answer like yes or no or sure or ofcourse or no problem, then:
-        - study the conversation history to find the context and rephrase it before passing it to the refer_from_the_knowledgebase_tool or negotiate_car_price tool
+        - study this conversation history:{json.dumps(load_conversation_history(user_id))} in order to give it context and meaning and then rephrase it before passing it to the refer_from_the_knowledgebase_tool.
         
     Context:
     - The memory:
     {load_memory_from_db(user_id)}
-    - The conversation history so far is:
-    {json.dumps(load_conversation_history(user_id))}
     - The user's latest message is:
     "{user_message}"
 
