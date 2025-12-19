@@ -28,7 +28,7 @@ import gradio as gr
 from huggingface_hub import login
 from smolagents import CodeAgent
 from smolagents import LiteLLMModel
-login(os.getenv("HF_TOKEN").strip())
+# login(os.getenv("HF_TOKEN").strip())
 
 
 # Load your car sales CSV
