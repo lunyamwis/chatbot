@@ -1,7 +1,7 @@
 # app.py
 import json
 import gradio as gr
-from pandasaitest import build_messages, load_conversation_history, generate_user_profile,user_id,clear_memory_in_db
+from pandasaitest import build_messages, load_conversation_history, generate_user_profile,user_id,clear_memory_in_db,clear_conversation_history
 from datetime import datetime
 
 from models import Comments, SessionLocal
@@ -74,7 +74,7 @@ with gr.Blocks(theme=gr.themes.Soft(), css=".gradio-container {max-width: 800px;
     )
 
     clear_btn.click(
-        fn=clear_memory_in_db,
+        fn=clear_conversation_history,
         inputs=None,
         outputs=status
     )

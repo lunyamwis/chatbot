@@ -235,7 +235,7 @@ def append_conversation_history(user_id: str, user_msg: str, assistant_msg: str)
 
 
 
-def clear_conversation_history(user_id: str):
+def clear_conversation_history():
     session = SessionLocal()
     session.query(ConversationHistory).filter_by(user_id=user_id).delete()
     session.commit()
