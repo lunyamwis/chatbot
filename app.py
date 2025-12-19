@@ -1,7 +1,7 @@
 # app.py
 import json
 import gradio as gr
-from pandasaitest import build_messages, load_conversation_history, generate_user_profile,user_id
+from pandasaitest import build_messages, load_conversation_history, generate_user_profile,user_id,clear_memory_in_db
 from datetime import datetime
 
 from models import Comments, SessionLocal
@@ -66,6 +66,18 @@ with gr.Blocks(theme=gr.themes.Soft(), css=".gradio-container {max-width: 800px;
         """
     )
 
+    clear_btn = gr.Button("Reset Conversation", variant="stop")
+
+    status = gr.Textbox(
+        label="Status",
+        interactive=False
+    )
+
+    clear_btn.click(
+        fn=clear_memory_in_db,
+        inputs=user_id,
+        outputs=status
+    )
     with gr.Tab("💬 Chat"):
         # chatbot = gr.Textbox(label="Chat History", lines=15, interactive=False)
         chatbot = gr.Markdown(label="Chat History",line_breaks=True) 

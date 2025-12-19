@@ -187,9 +187,19 @@ def save_memory_to_db(user_id: str, memory: dict):
 
 def clear_memory_in_db(user_id: str):
     session = SessionLocal()
-    session.query(ConversationMemory).filter_by(user_id=user_id).delete()
-    session.commit()
-    session.close()
+    try:
+        deleted = (
+            session.query(ConversationMemory)
+            .filter_by(user_id=user_id)
+            .delete()
+        )
+        session.commit()
+        return f"✅ Cleared {deleted} memory records"
+    except Exception as e:
+        session.rollback()
+        return f"❌ Error clearing memory: {str(e)}"
+    finally:
+        session.close()
 
 
 
@@ -609,7 +619,7 @@ def refer_from_the_knowledgebase_tool(message):
     ## **4. Output Rules**
 
     * Always output a **DataFrame** (never empty). 
-    * Return columns dynamically based on the user’s query (e.g., color or mileage), while always including the stock ID, which remains consistent. 
+    * Return columns dynamically based on the user’s query (e.g., color or mileage), while always including the stock ID and model, which remains consistent. 
     * Never raise errors.
     * Keep the explanation short.
     * Only add the price when the user's request contains wording about price, budget, or 'how much'.
@@ -1078,9 +1088,9 @@ def rephrase_answer_prompt(customer_question: str, answer: str, conversation_his
 
         Rules
 
-        1. Make the proposed answer sound friendly, concise, and human-like.
+        1. Make the proposed answer sound friendly but straight to the point, concise, and human-like.
         2. Keep the final response under **60 words**.
-        3. If from the proposed answer there is no exact match during a car search, share the alternatives given in the proposed answer.
+        3. If from the proposed answer there is no exact match during a car search, share the alternatives given in the proposed answer and outline you are willing to import.
         4. Only share images when requested by the customer, and use the links from the IMAGE_URL column to do so.
 
 
