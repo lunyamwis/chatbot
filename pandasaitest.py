@@ -185,7 +185,7 @@ def save_memory_to_db(user_id: str, memory: dict):
 
 
 
-def clear_memory_in_db(user_id: str):
+def clear_memory_in_db():
     session = SessionLocal()
     try:
         deleted = (

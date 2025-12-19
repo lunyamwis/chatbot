@@ -75,7 +75,7 @@ with gr.Blocks(theme=gr.themes.Soft(), css=".gradio-container {max-width: 800px;
 
     clear_btn.click(
         fn=clear_memory_in_db,
-        inputs=user_id,
+        inputs=None,
         outputs=status
     )
     with gr.Tab("💬 Chat"):
