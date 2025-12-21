@@ -702,6 +702,9 @@ def vehicle_enquiry_agent(user_message=None) -> str:
         - study this conversation history:{json.dumps(load_conversation_history(user_id))} in order to give it context and meaning and then rephrase it before passing it to the refer_from_the_knowledgebase_tool.
         
     If {user_message} is going off topic politely return them to the topic
+
+    If {user_message} has given their budget from context below in the memory:
+        use the negotiate_car_price tool to offer a price
     Context:
     - The memory:
     {load_memory_from_db(user_id)}
