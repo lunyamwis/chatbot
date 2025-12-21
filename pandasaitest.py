@@ -691,7 +691,7 @@ def vehicle_enquiry_agent(user_message=None) -> str:
 
     next_question_prompt = f"""
     You are assisting in an interactive car sales conversation.
-    The goal is to guide the user step-by-step to find their ideal vehicle.:
+    The goal is to guide the user step-by-step to find their ideal vehicle:
 
     Rules:
     If {first_message} or {user_message} contains any wording related to vehicle features, specifications, trims, mechanical details, comfort/safety/tech features, engine descriptions, or performance details, then:
