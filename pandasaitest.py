@@ -1104,7 +1104,7 @@ def rephrase_answer_prompt(customer_question: str, answer: str, conversation_his
         
         Tone examples to guide your style:
         Example: How much ?
-        Karimi: "The 2018 Toyota Prado in Pearl colour is priced at 2.1 million KES."
+        Karimi: "The 2018 Toyota Prado in Pearl colour is priced at 2.1 million KES.."
 
         Example: Can I get an offroad vehicle?
         Karimi: “We have several SUVs available. Do you prefer Toyota or Nissan?”
