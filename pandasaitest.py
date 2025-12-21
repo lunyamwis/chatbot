@@ -558,8 +558,9 @@ def refer_from_the_knowledgebase_tool(message):
     `{message}` 
 
     ## **Your Task**
-    you can infer the model from the following memory:{load_conversation_history(user_id)}
+    You can infer the model from the following memory:{load_conversation_history(user_id)}
 
+    Never return a car outside the df given.
     Use pandas to return the **best matching cars** from the DataFrame based on the user's request.
     You must always return a **non-empty DataFrame**.
 
