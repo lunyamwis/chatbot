@@ -703,7 +703,7 @@ def vehicle_enquiry_agent(user_message=None) -> str:
         
     If `{user_message}` goes off topic, politely guide the user back to the main subject.
 
-    If you detect that a budget has been provided (by checking the context below) and the user is asking for a lower price, use the `negotiate_car_price` tool to determine the best possible price.
+    If you detect that a budget value has been provided (by checking the context below) and the user is requesting a lower price, use the `negotiate_car_price` tool to determine the best possible offer.
 
     
     Context:
