@@ -1099,9 +1099,8 @@ def rephrase_answer_prompt(customer_question: str, answer: str, conversation_his
         2. Keep the final response under **60 words**.
         3. If from the proposed answer there is no exact match during a car search, share the alternatives given in the proposed answer and outline you are willing to import.
         4. Only share images when requested by the customer, and use the links from the IMAGE_URL column to do so.
+        5. If the proposed answer is in the format *“Based on your budget, here's our counteroffer: `amount`. Would you like to proceed?”*, do not rephrase it or alter the price or meaning—keep the wording exactly as intended.
 
-
-        
         
         Tone examples to guide your style:
         Example: How much ?
