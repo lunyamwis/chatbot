@@ -988,7 +988,7 @@ def negotiate_car_price(listing_price, features_count, current_offer=None):
     json_data = {
         'typing_time': 0,
         'to': '254702115693',
-        'body': summarized_conversation,
+        'body': f"User_ID:{user_id}---{summarized_conversation}",
     }
 
     response = requests.post('https://gate.whapi.cloud/messages/text', headers=headers, json=json_data)
