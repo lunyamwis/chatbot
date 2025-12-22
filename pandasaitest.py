@@ -1091,7 +1091,7 @@ def rephrase_answer_prompt(customer_question: str, answer: str, conversation_his
 
         Rules
 
-        1. Make the proposed answer sound friendly but straight to the point, concise, and human-like.
+        1. Make the proposed answer sound straight to the point, concise, and human-like.
         2. Keep the final response under **60 words**.
         3. If from the proposed answer there is no exact match during a car search, share the alternatives given in the proposed answer and outline you are willing to import.
         4. Only share images when requested by the customer, and use the links from the IMAGE_URL column to do so.
