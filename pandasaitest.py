@@ -40,23 +40,14 @@ from smolagents import LiteLLMModel
 
 DB_PATH = "chatbot.db"
 def summarize_conversation_history(user_id: str, max_chars=912) -> str:
-    history = load_conversation_history(user_id)
-    if not history:
-        return "No conversation history found."
-
-    # Format conversation for AI input
-    formatted = ""
-    for entry in history:
-        role = entry.get("role", "user")
-        message = entry.get("message", "")
-        formatted += f"{role}: {message}\n"
-
+    
     # Prompt for the AI
     prompt = f"""
     Please provide a concise summary of the following conversation between a user and a bot,
     keeping it under {max_chars} characters:
 
-    {formatted}
+    Conversation:
+    {json.dumps(load_conversation_history(user_id=user_id))}
     """
 
     # Call OpenAI GPT
@@ -926,32 +917,32 @@ def negotiate_car_price(listing_price, features_count, current_offer=None):
     - Few features (<=5): 5% steps down to 90% of listing_price
     - 90% is the BEST (final) price
     """
-    target_price = listing_price * 0.90  # Always 10% off max
+    # target_price = listing_price * 0.90  # Always 10% off max
     
-    # Determine step size based on features
-    if features_count > 5:
-        step_size = 0.025  # 2.5% slow steps
-    else:
-        step_size = 0.05   # 5% quick steps
+    # # Determine step size based on features
+    # if features_count > 5:
+    #     step_size = 0.025  # 2.5% slow steps
+    # else:
+    #     step_size = 0.05   # 5% quick steps
     
-    # If no current offer, start from listing price
-    if current_offer is None:
-        current_price = listing_price
-    else:
-        current_price = current_offer
+    # # If no current offer, start from listing price
+    # if current_offer is None:
+    #     current_price = listing_price
+    # else:
+    #     current_price = current_offer
     
-    # Calculate next counteroffer (step down)
-    next_price = current_price * (1 - step_size)
+    # # Calculate next counteroffer (step down)
+    # next_price = current_price * (1 - step_size)
     
-    # Never go below 90%
-    if next_price <= target_price:
-        next_price = target_price
+    # # Never go below 90%
+    # if next_price <= target_price:
+    #     next_price = target_price
     
-    # Response format
-    step_description = "slow" if step_size == 0.025 else "quick"
+    # # Response format
+    # step_description = "slow" if step_size == 0.025 else "quick"
     summarized_conversation = summarize_conversation_history(user_id)
     headers = {
-        "Authorization": f"Bearer {os.getenv('WHATSAPP_TOKEN')}",
+        "Authorization": f"Bearer {os.getenv('WHATSAPP_TOKEN').strip()}",
         "Content-Type": "application/json"
     }
     parameters = {
@@ -959,8 +950,10 @@ def negotiate_car_price(listing_price, features_count, current_offer=None):
         "recipient_type": "individual",
         "to": '254702115693',
         "type": "template",
-        "template": 'lunyamwi_birdview_template',
-        "components": [{
+        "template":{
+            "name": "lunyamwi_template ",
+            "language": {"code": "en_GB"},
+            "components": [{
                         "type":"body",
                         "parameters":[
                             {
@@ -969,10 +962,11 @@ def negotiate_car_price(listing_price, features_count, current_offer=None):
                             },
                             {
                                 "type":"text",
-                                "text": cut_string_to_max_length(summarized_conversation)
+                                "text": f"User_ID:{user_id}---{cut_string_to_max_length(summarized_conversation)}"
                             }]
                         
-                    }]
+            }]
+        }
 
     }
     session = Session()
@@ -983,13 +977,33 @@ def negotiate_car_price(listing_price, features_count, current_offer=None):
         print(f"data: {data}")
     except (ConnectionError, Timeout, TooManyRedirects) as e:
         print(e)
+
+    
+    headers = {
+        'accept': 'application/json',
+        'authorization': f'Bearer {os.getenv("WHAPI_TOKEN").strip()}',
+        'content-type': 'application/json',
+    }
+
+    json_data = {
+        'typing_time': 0,
+        'to': '254702115693',
+        'body': summarized_conversation,
+    }
+
+    response = requests.post('https://gate.whapi.cloud/messages/text', headers=headers, json=json_data)
+    print(response.json())
+    # Note: json_data will not be serialized by requests
+    # exactly as it was in the original request.
+    #data = '\n{\n  "typing_time": 0,\n  "to": "254718114982",\n  "body": "hello"\n}\n'
+    #response = requests.post('https://gate.whapi.cloud/messages/text', headers=headers, data=data)
     return {
-        "current_price": round(current_price, 2),
-        "counteroffer": round(next_price, 2),
-        "target_price": round(target_price, 2),
-        "step_type": step_description,
-        "features_count": features_count,
-        "done": next_price <= target_price,
+        # "current_price": round(current_price, 2),
+        # "counteroffer": round(next_price, 2),
+        # "target_price": round(target_price, 2),
+        # "step_type": step_description,
+        # "features_count": features_count,
+        # "done": next_price <= target_price,
         "deal_text": "Allow me to forward this deal to my supervisor for review and approval."
     }
 
