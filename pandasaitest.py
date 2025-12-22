@@ -699,7 +699,7 @@ def vehicle_enquiry_agent(user_message=None) -> str:
     If {user_message} is a very brief ambigous answer like yes or no or sure or ofcourse or no problem, then:
         - study this conversation history:{json.dumps(load_conversation_history(user_id))} in order to give it context and meaning and then rephrase it before passing it to the refer_from_the_knowledgebase_tool.
     If `{user_message}` goes off topic, politely guide the user back to the main subject.
-    Only consider a budget as provided when the user explicitly states a numeric value greater than 0. Ignore `budget: None`, missing values, vehicle prices, or non-financial context. You may verify this from context memory or the conversation history below. Trigger the `negotiate_car_price` tool only when this condition is met.
+    If `{user_message}` indicates that the user is sharing their budget, only treat it as provided when they explicitly state a numeric value greater than 0. Trigger the `negotiate_car_price` tool.
 
 
     
