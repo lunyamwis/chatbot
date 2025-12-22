@@ -9,6 +9,9 @@ import logging
 import math
 from openai import OpenAI
 from models import Base, engine, SessionLocal, ConversationMemory, ConversationHistory
+from requests import Session
+import json
+from requests.exceptions import ConnectionError, Timeout, TooManyRedirects
 # import pandasai as pai
 # from pandasai_litellm.litellm import LiteLLM
 
@@ -36,6 +39,40 @@ from smolagents import LiteLLMModel
 
 
 DB_PATH = "chatbot.db"
+def summarize_conversation_history(user_id: str, max_chars=912) -> str:
+    history = load_conversation_history(user_id)
+    if not history:
+        return "No conversation history found."
+
+    # Format conversation for AI input
+    formatted = ""
+    for entry in history:
+        role = entry.get("role", "user")
+        message = entry.get("message", "")
+        formatted += f"{role}: {message}\n"
+
+    # Prompt for the AI
+    prompt = f"""
+    Please provide a concise summary of the following conversation between a user and a bot,
+    keeping it under {max_chars} characters:
+
+    {formatted}
+    """
+
+    # Call OpenAI GPT
+    response = llm.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.3
+    )
+
+    summary = response.choices[0].message.content.strip()
+
+    # Ensure truncation
+    if len(summary) > max_chars:
+        summary = summary[:max_chars] + "..."
+
+    return summary
 
 
 def load_conversation_history(user_id: str) -> list:
@@ -873,7 +910,12 @@ def vehicle_enquiry_agent(user_message=None) -> str:
         return next_question
 
 
+URL="https://graph.facebook.com/v19.0/113229231601681/messages"
 
+def cut_string_to_max_length(input_string, max_length=912):
+    if len(input_string) > max_length:
+        return input_string[:max_length]
+    return input_string
 
 def negotiate_car_price(listing_price, features_count, current_offer=None):
     """
@@ -907,6 +949,40 @@ def negotiate_car_price(listing_price, features_count, current_offer=None):
     
     # Response format
     step_description = "slow" if step_size == 0.025 else "quick"
+    summarized_conversation = summarize_conversation_history(user_id)
+    headers = {
+        "Authorization": f"Bearer {os.getenv('WHATSAPP_TOKEN')}",
+        "Content-Type": "application/json"
+    }
+    parameters = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": '254702115693',
+        "type": "template",
+        "template": 'lunyamwi_birdview_template',
+        "components": [{
+                        "type":"body",
+                        "parameters":[
+                            {
+                                "type":"text",
+                                "text": "Hassan",
+                            },
+                            {
+                                "type":"text",
+                                "text": cut_string_to_max_length(summarized_conversation)
+                            }]
+                        
+                    }]
+
+    }
+    session = Session()
+    session.headers.update(headers)
+    try:
+        response = session.post(URL, json=parameters)
+        data = json.loads(response.text)
+        print(f"data: {data}")
+    except (ConnectionError, Timeout, TooManyRedirects) as e:
+        print(e)
     return {
         "current_price": round(current_price, 2),
         "counteroffer": round(next_price, 2),
