@@ -623,6 +623,7 @@ def refer_from_the_knowledgebase_tool(message):
     * Return columns dynamically based on the user’s query (e.g., color or mileage), while always including the stock ID and model, which remains consistent. 
     * Never raise errors.
     * Keep the explanation short.
+    * Return only values found in the dataframe period do not hallucinate.
     * Only return the image_url column when the user explicitly requests images—such as when their user request query includes words like “show,” “see,” or any other image-related terms.
     * Only add the price when the user's request contains wording about price, budget, or 'how much'.
 
