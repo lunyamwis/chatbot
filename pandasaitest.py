@@ -603,7 +603,7 @@ def refer_from_the_knowledgebase_tool(message):
     closest_matches = df[df['MAKE'].str.contains(regex_pattern, case=False, na=False)]
 
     - Partial Make/Model similarity (highest priority) 
-    If the user requests a specific model and there are no exact matches, return all cars from the same make as a fallback.
+    If the user requests a specific model and there are no exact matches, return all cars from the same make as a fallback with their color, year and mileage.
     Example: if the user requests a specific model like "Mazda CX-5" and no exact match exists, return all cars from the same make (e.g., all Mazdas) as alternative options.
     
     When matching models, allow partial matches so that a more specific model (e.g., "Toyota Crown Athlete") can match a general model name (e.g., "Toyota Crown") if an exact match is not found.
