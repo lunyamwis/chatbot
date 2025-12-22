@@ -699,7 +699,8 @@ def vehicle_enquiry_agent(user_message=None) -> str:
     If {user_message} is a very brief ambigous answer like yes or no or sure or ofcourse or no problem, then:
         - study this conversation history:{json.dumps(load_conversation_history(user_id))} in order to give it context and meaning and then rephrase it before passing it to the refer_from_the_knowledgebase_tool.
     If `{user_message}` goes off topic, politely guide the user back to the main subject.
-    If you detect that a budget value has been provided (by checking the context below) and the user is requesting a lower price, use the `negotiate_car_price` tool to determine the best possible offer.
+    Only consider a budget as provided when the user explicitly states a numeric value greater than 0 in a money-related message. Ignore `budget: None`, missing values, vehicle prices, or non-financial context. You may verify this from context memory or the conversation history below. Trigger the `negotiate_car_price` tool only when this condition is met.
+
 
     
     Context:
@@ -819,7 +820,7 @@ def vehicle_enquiry_agent(user_message=None) -> str:
                 save_memory_to_db(user_id, memory)
                 print(f"Negotiation state updated for {user_id}")
 
-                return {"reply": f"Based on your budget, here's our counteroffer: {tool_result['counteroffer']}. Would you like to proceed?"}
+                return {"reply": f"{tool_result['deal_text']}"}
             if result.function.name == "refer_from_the_knowledgebase_tool":
                 args = json.loads(result.function.arguments)
                 tool_result = refer_from_the_knowledgebase_tool(args.get("message", ""))
@@ -912,9 +913,8 @@ def negotiate_car_price(listing_price, features_count, current_offer=None):
         "step_type": step_description,
         "features_count": features_count,
         "done": next_price <= target_price,
-        "deal_text": f"Counter: ${next_price} ({step_description} step)"
+        "deal_text": "Allow me to forward this deal to my supervisor for review and approval."
     }
-
 
 
 def negotiate_price_agent(memory, user_message):
