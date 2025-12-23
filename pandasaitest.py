@@ -44,7 +44,7 @@ def summarize_conversation_history(user_id: str, max_chars=912) -> str:
     # Prompt for the AI
     prompt = f"""
     Please provide a concise summary of the following conversation between a user and a bot,
-    keeping it under {max_chars} characters:
+    keeping it under {max_chars} characters: outline their budget incase they have mentioned it.
 
     Conversation:
     {json.dumps(load_conversation_history(user_id=user_id))}
@@ -1187,7 +1187,7 @@ def rephrase_answer_prompt(customer_question: str, answer: str, conversation_his
         3. If from the proposed answer there is no exact match during a car search, share the alternatives given in the proposed answer and outline you are willing to import.
         4. Only share images when requested by the customer, and use the links from the IMAGE_URL column to do so.
         5. If the proposed answer is in the format *“Allow me to forward this deal to my supervisor for review and approval.”*, do not rephrase it or alter the price or meaning—keep the wording exactly as intended.
-
+        6. Do not use the word approximate.
         
         Tone examples to guide your style:
         Example: How much ?
